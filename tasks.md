@@ -140,8 +140,8 @@ curl http://localhost:3000/tasks -H "Authorization: Bearer $TOKEN"
 **Branch:** `phase/4-extension-popup`
 
 ### Tasks
-- [ ] Create `extension/popup.html` — quick-add form (title, priority dropdown, description) + task list section
-- [ ] Create `extension/popup.js`:
+- [x] Create `extension/popup.html` — quick-add form (title, priority dropdown, description) + task list section
+- [x] Create `extension/popup.js`:
   - On open: read `{ token, apiBase }` from storage; if missing, show "Please log in via Options"
   - Fetch active tasks on open; render sorted by `nextReminder` ASC
   - Each task row: title, priority badge, human-readable countdown (e.g. "in 23 min"), [Complete] [Check-in] [Snooze] buttons
@@ -225,3 +225,6 @@ All pass criteria met: SRS formula caps at 5×, completed tasks hidden from list
 
 ### Phase 3 — Extension: Manifest, Options & Login ✓
 Merged to `main` from `phase/3-extension-auth`. All pass criteria met: login/register flow works end-to-end, token persists in storage, logout clears storage cleanly, wrong password shows error.
+
+### Phase 4 — Extension: Popup (Quick-capture & Task List) ✓
+Merged to `main` from `phase/4-extension-popup`. All pass criteria met: task actions work from popup, list sorts by nextReminder ASC, unauthenticated state handled gracefully.
