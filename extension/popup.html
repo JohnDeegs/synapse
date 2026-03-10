@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Synapse</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0f0f13; color: #e0e0e8; padding: 20px; width: 280px; }
+    p { color: #aaa; font-size: 0.9rem; }
+    a { color: #6b5bf5; }
+  </style>
+</head>
+<body>
+  <p>Synapse is loading…<br><br>Go to <a href="#" id="opts">Options</a> to log in.</p>
+  <script>
+    document.getElementById('opts').addEventListener('click', e => {
+      e.preventDefault();
+      chrome.runtime.openOptionsPage();
+    });
+  </script>
+</body>
+</html>
