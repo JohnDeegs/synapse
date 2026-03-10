@@ -50,11 +50,11 @@ curl -X POST http://localhost:3000/auth/login \
 **Branch:** `phase/2-backend-tasks`
 
 ### Tasks
-- [ ] Create `server/tasks.js`:
+- [x] Create `server/tasks.js`:
   - `BASE_INTERVALS` map (P0=30, P1=120, P2=1440, P3=4320, P4=10080 minutes)
   - `calcNextReminder(priority, checkinCount, fromTime)` pure function
   - Task CRUD helpers using db prepared statements
-- [ ] Add task routes to `server/server.js`:
+- [x] Add task routes to `server/server.js`:
   - `GET /tasks` — return active tasks for authenticated user
   - `POST /tasks` — create task, set `nextReminder` via `calcNextReminder`
   - `PATCH /tasks/:id` — actions: `checkin` (increment count, append log, recalculate), `complete` (set status), `snooze` (set next_reminder = now + minutes)
@@ -219,3 +219,6 @@ curl http://localhost:3000/tasks -H "Authorization: Bearer $TOKEN"
 
 ### Phase 1 — Backend: Database & Auth ✓
 Merged to `main` from `phase/1-backend-auth`. All pass criteria met.
+
+### Phase 2 — Backend: Task API ✓
+All pass criteria met: SRS formula caps at 5×, completed tasks hidden from list, cross-user access blocked.
