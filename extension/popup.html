@@ -4,18 +4,162 @@
   <meta charset="UTF-8" />
   <title>Synapse</title>
   <style>
-    body { font-family: system-ui, sans-serif; background: #0f0f13; color: #e0e0e8; padding: 20px; width: 280px; }
-    p { color: #aaa; font-size: 0.9rem; }
-    a { color: #6b5bf5; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f0f13;
+      color: #e0e0e8;
+      width: 340px;
+      min-height: 200px;
+      padding: 14px;
+    }
+
+    /* Auth notice */
+    #auth-notice {
+      color: #aaa;
+      font-size: 0.9rem;
+      padding: 20px 0;
+      text-align: center;
+    }
+    #auth-notice a { color: #6b5bf5; cursor: pointer; text-decoration: underline; }
+
+    /* Quick-add form */
+    #add-form {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    #add-form input, #add-form select, #add-form textarea {
+      background: #1a1a24;
+      border: 1px solid #333;
+      color: #e0e0e8;
+      border-radius: 5px;
+      padding: 6px 8px;
+      font-size: 0.85rem;
+      font-family: inherit;
+      outline: none;
+    }
+    #add-form input:focus, #add-form select:focus, #add-form textarea:focus {
+      border-color: #6b5bf5;
+    }
+    #add-form textarea { resize: none; height: 48px; }
+    #add-form .form-row { display: flex; gap: 6px; }
+    #add-form .form-row select { flex: 1; }
+    #add-form .form-row button {
+      flex: 0 0 auto;
+      background: #6b5bf5;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      padding: 6px 14px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    #add-form .form-row button:hover { background: #7d6ef7; }
+    #add-error { color: #f55; font-size: 0.8rem; min-height: 16px; }
+
+    /* Task list */
+    #task-list { display: flex; flex-direction: column; gap: 8px; }
+    #task-list .empty { color: #666; font-size: 0.85rem; text-align: center; padding: 16px 0; }
+
+    .task-card {
+      background: #1a1a24;
+      border: 1px solid #2a2a38;
+      border-radius: 7px;
+      padding: 9px 10px;
+    }
+    .task-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+    .task-title { font-size: 0.88rem; flex: 1; word-break: break-word; }
+    .priority-badge {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .p0 { background: #5c1a1a; color: #ff7070; }
+    .p1 { background: #3d2e0a; color: #ffa94d; }
+    .p2 { background: #1a2e1a; color: #6bcf6b; }
+    .p3 { background: #0a1e3d; color: #6baef5; }
+    .p4 { background: #1e1a3d; color: #a89af5; }
+
+    .task-countdown { font-size: 0.75rem; color: #888; margin-bottom: 6px; }
+    .task-countdown.overdue { color: #f55; }
+
+    .task-actions { display: flex; gap: 5px; flex-wrap: wrap; }
+    .task-actions button {
+      font-size: 0.75rem;
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: 1px solid #333;
+      background: #252535;
+      color: #ccc;
+      cursor: pointer;
+    }
+    .task-actions button:hover { background: #2e2e45; color: #fff; }
+
+    .checkin-row {
+      display: flex;
+      gap: 5px;
+      margin-top: 6px;
+    }
+    .checkin-row input {
+      flex: 1;
+      background: #1a1a24;
+      border: 1px solid #6b5bf5;
+      color: #e0e0e8;
+      border-radius: 4px;
+      padding: 4px 7px;
+      font-size: 0.8rem;
+      font-family: inherit;
+      outline: none;
+    }
+    .checkin-row button {
+      background: #6b5bf5;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .checkin-row button:hover { background: #7d6ef7; }
+
+    /* Divider */
+    hr { border: none; border-top: 1px solid #222; margin: 10px 0; }
+
+    #loading { color: #666; font-size: 0.85rem; text-align: center; padding: 12px 0; }
   </style>
 </head>
 <body>
-  <p>Synapse is loading…<br><br>Go to <a href="#" id="opts">Options</a> to log in.</p>
-  <script>
-    document.getElementById('opts').addEventListener('click', e => {
-      e.preventDefault();
-      chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
-    });
-  </script>
+  <div id="auth-notice" style="display:none">
+    Please <a id="opts-link">log in via Options</a> to use Synapse.
+  </div>
+
+  <div id="main" style="display:none">
+    <form id="add-form">
+      <input type="text" id="new-title" placeholder="New task title…" required />
+      <textarea id="new-desc" placeholder="Description (optional)"></textarea>
+      <div class="form-row">
+        <select id="new-priority">
+          <option value="P0">P0 — Critical</option>
+          <option value="P1">P1 — High</option>
+          <option value="P2" selected>P2 — Normal</option>
+          <option value="P3">P3 — Low</option>
+          <option value="P4">P4 — Someday</option>
+        </select>
+        <button type="submit">Add</button>
+      </div>
+      <div id="add-error"></div>
+    </form>
+
+    <hr />
+
+    <div id="loading">Loading tasks…</div>
+    <div id="task-list" style="display:none"></div>
+  </div>
+
+  <script src="popup.js"></script>
 </body>
 </html>
