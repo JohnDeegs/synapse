@@ -115,10 +115,10 @@ curl http://localhost:3000/tasks -H "Authorization: Bearer $TOKEN"
 **Branch:** `phase/3-extension-auth`
 
 ### Tasks
-- [ ] Create `extension/manifest.json` (MV3, permissions: `alarms`, `notifications`, `storage`, host_permissions for backend URL)
-- [ ] Create placeholder `extension/icons/` (16px, 48px, 128px PNGs — can use simple placeholders initially)
-- [ ] Create `extension/options.html` — tabbed Login / Register form with API base URL field
-- [ ] Create `extension/options.js`:
+- [x] Create `extension/manifest.json` (MV3, permissions: `alarms`, `notifications`, `storage`, host_permissions for backend URL)
+- [x] Create placeholder `extension/icons/` (16px, 48px, 128px PNGs — can use simple placeholders initially)
+- [x] Create `extension/options.html` — tabbed Login / Register form with API base URL field
+- [x] Create `extension/options.js`:
   - On submit: call `/auth/login` or `/auth/register`
   - On success: save `{ token, apiBase }` to `chrome.storage.local`
   - Show logged-in state (display email, logout button)
@@ -222,3 +222,6 @@ Merged to `main` from `phase/1-backend-auth`. All pass criteria met.
 
 ### Phase 2 — Backend: Task API ✓
 All pass criteria met: SRS formula caps at 5×, completed tasks hidden from list, cross-user access blocked.
+
+### Phase 3 — Extension: Manifest, Options & Login ✓
+Merged to `main` from `phase/3-extension-auth`. All pass criteria met: login/register flow works end-to-end, token persists in storage, logout clears storage cleanly, wrong password shows error.
