@@ -37,7 +37,7 @@ function renderTasks(tasks) {
     card.className = 'task-card';
     card.dataset.id = task.id;
 
-    const countdown = formatCountdown(task.next_reminder * 1000);
+    const countdown = formatCountdown(new Date(task.next_reminder).getTime());
 
     card.innerHTML = `
       <div class="task-header">
