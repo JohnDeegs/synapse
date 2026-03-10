@@ -11,11 +11,11 @@ Each phase is completed on its own git branch and merged to `main` after testing
 **Branch:** `phase/1-backend-auth`
 
 ### Tasks
-- [ ] Create `server/package.json` with dependencies: `better-sqlite3`, `bcryptjs`, `jsonwebtoken`
-- [ ] Create `server/.env.example` with `PORT`, `DATA_FILE`, `JWT_SECRET`
-- [ ] Create `server/db.js` — SQLite init, schema creation (`users`, `tasks`, `checkin_log` tables), prepared statement helpers
-- [ ] Create `server/auth.js` — `hashPassword`, `verifyPassword`, `signToken`, `verifyToken`
-- [ ] Create `server/server.js` with:
+- [x] Create `server/package.json` with dependencies: `better-sqlite3`, `bcryptjs`, `jsonwebtoken`
+- [x] Create `server/.env.example` with `PORT`, `DATA_FILE`, `JWT_SECRET`
+- [x] Create `server/db.js` — SQLite init, schema creation (`users`, `tasks`, `checkin_log` tables), prepared statement helpers
+- [x] Create `server/auth.js` — `hashPassword`, `verifyPassword`, `signToken`, `verifyToken`
+- [x] Create `server/server.js` with:
   - `readBody()` helper
   - Auth middleware (reads `Authorization: Bearer` header)
   - `POST /auth/register` and `POST /auth/login` routes only
@@ -216,4 +216,6 @@ curl http://localhost:3000/tasks -H "Authorization: Bearer $TOKEN"
 ---
 
 ## Completed Phases
-*(move phases here as they are merged to main)*
+
+### Phase 1 — Backend: Database & Auth ✓
+Merged to `main` from `phase/1-backend-auth`. All pass criteria met.
