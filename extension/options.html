@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Synapse — Options</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f0f13;
+      color: #e0e0e8;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 40px 16px;
+    }
+    .card {
+      background: #1a1a24;
+      border: 1px solid #2a2a3a;
+      border-radius: 12px;
+      padding: 32px;
+      width: 100%;
+      max-width: 420px;
+    }
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      margin-bottom: 24px;
+      color: #c4b8ff;
+    }
+    .tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 24px;
+      border-bottom: 1px solid #2a2a3a;
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      color: #888;
+      padding: 8px 20px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.15s;
+    }
+    .tab-btn.active {
+      color: #c4b8ff;
+      border-bottom-color: #6b5bf5;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: #aaa;
+      margin-bottom: 5px;
+      margin-top: 14px;
+    }
+    input {
+      width: 100%;
+      padding: 9px 12px;
+      background: #12121a;
+      border: 1px solid #2a2a3a;
+      border-radius: 7px;
+      color: #e0e0e8;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: #6b5bf5; }
+    button.primary {
+      margin-top: 20px;
+      width: 100%;
+      padding: 10px;
+      background: #6b5bf5;
+      border: none;
+      border-radius: 7px;
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button.primary:hover { background: #5a4bdf; }
+    button.primary:disabled { background: #3a3a55; cursor: not-allowed; }
+    .msg {
+      margin-top: 12px;
+      font-size: 0.88rem;
+      min-height: 1.2em;
+    }
+    .msg.error { color: #f87171; }
+    .msg.success { color: #4ade80; }
+    #logged-in-section {
+      display: none;
+      text-align: center;
+    }
+    #logged-in-section p { color: #aaa; margin-bottom: 8px; }
+    #logged-in-email { color: #c4b8ff; font-weight: 600; }
+    button.secondary {
+      margin-top: 12px;
+      padding: 8px 20px;
+      background: none;
+      border: 1px solid #f87171;
+      border-radius: 7px;
+      color: #f87171;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button.secondary:hover { background: rgba(248,113,113,0.1); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Synapse Settings</h1>
+
+    <div id="logged-in-section">
+      <p>Logged in as</p>
+      <div id="logged-in-email"></div>
+      <button class="secondary" id="logout-btn">Log out</button>
+    </div>
+
+    <div id="auth-section">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="login">Login</button>
+        <button class="tab-btn" data-tab="register">Register</button>
+      </div>
+
+      <div class="tab-panel active" id="tab-login">
+        <label for="login-api">Backend URL</label>
+        <input type="url" id="login-api" placeholder="http://localhost:3000" />
+
+        <label for="login-email">Email</label>
+        <input type="email" id="login-email" placeholder="you@example.com" />
+
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" />
+
+        <button class="primary" id="login-btn">Log in</button>
+        <div class="msg" id="login-msg"></div>
+      </div>
+
+      <div class="tab-panel" id="tab-register">
+        <label for="reg-api">Backend URL</label>
+        <input type="url" id="reg-api" placeholder="http://localhost:3000" />
+
+        <label for="reg-email">Email</label>
+        <input type="email" id="reg-email" placeholder="you@example.com" />
+
+        <label for="reg-password">Password</label>
+        <input type="password" id="reg-password" placeholder="••••••••" />
+
+        <button class="primary" id="register-btn">Create account</button>
+        <div class="msg" id="register-msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
