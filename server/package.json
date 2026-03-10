@@ -1,0 +1,14 @@
+{
+  "name": "synapse-server",
+  "version": "1.0.0",
+  "description": "Synapse backend — vanilla Node.js + SQLite",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
