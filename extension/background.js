@@ -6,7 +6,7 @@ const ALARM_NAME = 'reminderCheck';
 const activeNotifications = {}; // notificationId -> taskId
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
+  chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.1 }); // TEMP: testing only, restore to 1 before merge
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
