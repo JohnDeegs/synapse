@@ -9,6 +9,7 @@
   "dependencies": {
     "better-sqlite3": "^9.4.3",
     "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
     "jsonwebtoken": "^9.0.2"
   }
 }
