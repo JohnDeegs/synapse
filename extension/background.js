@@ -5,8 +5,15 @@ const ALARM_NAME = 'reminderCheck';
 // Track which task IDs have active notifications to avoid duplicates
 const activeNotifications = {}; // notificationId -> taskId
 
+// Create alarm on install and on every service worker startup
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.1 }); // TEMP: testing only, restore to 1 before merge
+  chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
+});
+
+chrome.alarms.get(ALARM_NAME, (alarm) => {
+  if (!alarm) {
+    chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
+  }
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
