@@ -165,7 +165,7 @@ curl http://localhost:3000/tasks -H "Authorization: Bearer $TOKEN"
 **Branch:** `phase/5-extension-background`
 
 ### Tasks
-- [ ] Create `extension/background.js`:
+- [x] Create `extension/background.js`:
   - On `chrome.runtime.onInstalled`: create repeating alarm `reminderCheck` with `periodInMinutes: 1`
   - On alarm: fetch tasks, compare `nextReminder` to `Date.now()`, fire `chrome.notifications.create()` for due tasks
   - Notification buttons: Complete (0), Check-in (1), Snooze 1hr (2)
@@ -214,6 +214,9 @@ curl http://localhost:3000/tasks -H "Authorization: Bearer $TOKEN"
 **Pass criteria:** App works end-to-end against the Railway deployment; local dev still works against `localhost:3000`.
 
 ---
+
+### Phase 5 — Extension: Background Worker & Notifications ✓
+Merged to `main`. All pass criteria met: notifications fire for due tasks, all three button actions update the backend correctly, no duplicate notifications for the same task. Alarm persists across service worker restarts via `chrome.alarms.get` startup check.
 
 ## Completed Phases
 
