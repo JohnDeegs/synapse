@@ -79,6 +79,40 @@ The multiplier caps at **5×** (reached after 8 check-ins). After that, addition
 
 ---
 
+## Phase 5 Retrospective: What Worked, What Didn't, What I Wish I Knew
+
+### What Worked Well
+
+- **The core logic was straightforward.** The alarm → fetch → compare timestamps → fire notification pipeline is clean and simple. Once the plumbing was right, it just worked.
+- **Duplicate prevention via Chrome's notification ID system.** Using `task-<id>` as the notification ID means Chrome itself deduplicates — if you try to create a notification with an ID that already exists, it silently no-ops. The in-memory `activeNotifications` map is belt-and-suspenders on top of this.
+- **`requireInteraction: true` is the right default.** Notifications stay on screen until the user acts on them, which is the whole point of Synapse. Don't remove this.
+- **Negative snooze as a test tool.** `{"action":"snooze","minutes":-60}` is a clean way to force any task into the past without needing a special test endpoint. Simple and effective.
+
+---
+
+### What Didn't Go Well
+
+- **`onInstalled` trap cost time.** This is a well-known MV3 gotcha and we still hit it. The alarm vanished on every reload during development, making it look like the whole notification system was broken when the real issue was just the alarm not existing.
+- **Windows notification UX is a black box.** There's no obvious way to know from code that notifications are being created but silently swallowed by the OS. The code logs said "notification created ok" but nothing appeared. This caused unnecessary debugging of correct code.
+- **The service worker console is misleading.** It looks like a normal DevTools console, but calling functions in it fails when the SW has gone idle. It's a trap for anyone used to debugging regular browser JS.
+- **No branch discipline.** We worked directly on `main` throughout this phase. The plan called for a `phase/5-extension-background` branch, but we skipped it. This means there's no clean PR history for this phase. For solo development it's fine; in a team it would be a problem.
+
+---
+
+### What I Wish I Knew Before Starting
+
+1. **The alarm disappears on reload — always add the startup guard from day one.** Don't add `onInstalled` and assume it's enough. Write the `chrome.alarms.get` guard immediately alongside it. It's two extra lines and saves 20 minutes of confusion.
+
+2. **Test OS notification settings before writing a single line of notification code.** On Windows, confirm a Chrome banner actually pops up before you write any code. Otherwise you'll be debugging working code.
+
+3. **The SW DevTools console is for reading, not writing.** Use it to watch logs passively. Don't try to call functions in it — by the time you type, the SW is probably idle. Add `console.log` to the source and reload instead.
+
+4. **Windows Action Center caps at 2 buttons.** If your UX depends on 3 buttons, you need banners. The Action Center is not a reliable fallback for button-heavy notifications on Windows.
+
+5. **`chrome.notifications.create` is fire-and-forget with no visible failure mode.** If it fails (bad icon path, missing permission, OS suppression), it fails silently. Always add a callback that checks `chrome.runtime.lastError` during development.
+
+---
+
 ## Phase 5 Post-Mortem: Background Worker & Notifications
 
 ### 1. `onInstalled` does not fire on extension reload
