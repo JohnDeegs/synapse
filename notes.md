@@ -79,6 +79,64 @@ The multiplier caps at **5×** (reached after 8 check-ins). After that, addition
 
 ---
 
+## Phase 5 Post-Mortem: Background Worker & Notifications
+
+### 1. `onInstalled` does not fire on extension reload
+
+**What happened:** `chrome.runtime.onInstalled` only fires on first install or version update — not when you click "Reload" on `chrome://extensions`. After every reload during development, the alarm was cleared and never recreated, so no notifications fired.
+
+**Fix:** Add a startup check at the top level of the service worker:
+```js
+chrome.alarms.get(ALARM_NAME, (alarm) => {
+  if (!alarm) chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
+});
+```
+This runs every time the SW starts and ensures the alarm always exists.
+
+**Advice for future builders:** Always pair `onInstalled` alarm creation with a top-level `chrome.alarms.get` guard. During development you will reload constantly, and without this the alarm silently disappears every time.
+
+---
+
+### 2. Service worker goes idle between alarm firings — don't call SW functions from DevTools console
+
+**What happened:** After the SW went idle and was woken by an alarm, calling `checkAndNotify()` directly in the DevTools console gave `ReferenceError: checkAndNotify is not defined`. The console was connected to a stale SW context.
+
+**Fix:** Don't try to manually invoke SW functions from the console. Instead, wait for the alarm to fire naturally (every 6 seconds with `periodInMinutes: 0.1`), or add temporary `console.log` statements to observe execution.
+
+**Advice for future builders:** The SW DevTools console is unreliable for manual function calls. Use logging inside the SW itself and watch the console passively.
+
+---
+
+### 3. Windows suppresses Chrome notification banners by default
+
+**What happened:** Notifications were being created successfully (`chrome.notifications.create` returned ok) but no banners appeared on screen. They were silently collected in the Windows Action Center (Win+N).
+
+**Fix:** Windows Settings → System → Notifications → Google Chrome → turn on "Show notification banners."
+
+**Advice for future builders:** On Windows, `chrome.notifications.create` succeeding does NOT mean a banner will appear. Always verify OS-level notification settings for Chrome. The Action Center (Win+N) is useful for confirming notifications are being received even when banners are suppressed.
+
+---
+
+### 4. Windows Action Center only shows 2 notification buttons
+
+**What happened:** Our notification has 3 buttons (Complete, Check-in, Snooze 1hr), but the Action Center only displays the first 2. The Snooze button was invisible there.
+
+**Impact:** Low — buttons work correctly on banner toasts, which is the primary UX. The Action Center is a fallback. This is a Windows platform limitation, not a bug.
+
+**Advice for future builders:** If you need all 3 buttons accessible, consider making the 3rd action (Snooze) the default click action on the notification body instead of a button.
+
+---
+
+### 5. `activeNotifications` is in-memory — resets on every SW restart
+
+**What happened:** The `activeNotifications` map tracks which tasks already have a notification showing, to prevent duplicates. Because it's a plain JS object in the SW, it resets every time the SW restarts (which happens on every alarm firing after idle).
+
+**Why this is acceptable:** Each alarm cycle the SW restarts fresh, `activeNotifications` is empty, and Chrome's own notification system deduplicates by notification ID (`task-<id>`). If a notification with that ID already exists, `chrome.notifications.create` silently no-ops. So duplicate prevention works at the Chrome level even when the in-memory map is cleared.
+
+**Advice for future builders:** Don't rely on in-memory state for anything critical across alarm cycles. Use `chrome.storage.local` for persistent state, or rely on Chrome's own deduplication by notification ID.
+
+---
+
 ## Phase Completion Status
 
 | Phase | Description | Status |
@@ -87,5 +145,5 @@ The multiplier caps at **5×** (reached after 8 check-ins). After that, addition
 | 2 | Backend: Task API | Done |
 | 3 | Extension: Manifest, Options & Login | Done |
 | 4 | Extension: Popup (Quick-capture & Task List) | Done |
-| 5 | Extension: Background Worker & Notifications | Pending |
+| 5 | Extension: Background Worker & Notifications | Done |
 | 6 | Deployment | Pending |
