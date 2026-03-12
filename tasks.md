@@ -196,13 +196,13 @@ curl http://localhost:3000/tasks -H "Authorization: Bearer $TOKEN"
 **Branch:** `phase/6-deployment`
 
 ### Tasks
-- [ ] Add `server/Procfile` or verify `package.json` start script: `"start": "node server.js"`
-- [ ] Create `README.md` with local setup and Railway deploy instructions
-- [ ] Deploy backend to Railway:
+- [x] Add `server/Procfile` or verify `package.json` start script: `"start": "node server.js"`
+- [x] Create `README.md` with local setup and Railway deploy instructions
+- [x] Deploy backend to Railway:
   - Add persistent volume, mount at `/data`
   - Set env vars: `DATA_FILE=/data/synapse.db`, `JWT_SECRET=<random>` (do NOT set `PORT` — Railway sets it)
-- [ ] Update extension `options.html` default API base URL to the live Railway URL
-- [ ] Test full flow against production backend
+- [x] Update extension `options.html` default API base URL to the live Railway URL
+- [x] Test full flow against production backend
 
 ### Testing
 1. Register a new account on the production backend via the extension Options page
@@ -214,6 +214,9 @@ curl http://localhost:3000/tasks -H "Authorization: Bearer $TOKEN"
 **Pass criteria:** App works end-to-end against the Railway deployment; local dev still works against `localhost:3000`.
 
 ---
+
+### Phase 6 — Deployment ✓
+Deployed to Railway at `https://synapse-production-3ae7.up.railway.app`. Persistent volume mounted at `/data`, env vars set. Extension updated to point at production URL. Full end-to-end test passed: register, create tasks (P0–P4), notification fired for forced-due task, Complete action updated production database correctly.
 
 ### Phase 5 — Extension: Background Worker & Notifications ✓
 Merged to `main`. All pass criteria met: notifications fire for due tasks, all three button actions update the backend correctly, no duplicate notifications for the same task. Alarm persists across service worker restarts via `chrome.alarms.get` startup check.
