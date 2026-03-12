@@ -71,11 +71,12 @@ The multiplier caps at **5×** (reached after 8 check-ins). After that, addition
 
 ---
 
-## Deployment Notes (Phase 6 — not yet done)
+## Deployment Notes (Phase 6)
 
 - Do NOT set `PORT` as an env var on Railway — Railway injects it automatically. Setting it manually causes port binding failures.
 - Set `DATA_FILE` to a path on the persistent volume (e.g. `/data/synapse.db`). Without a volume, the SQLite database resets on every deploy.
 - `JWT_SECRET` must be set. The server does not fall back to a default in production.
+- When generating a domain in Railway, it asks for a "target port." This is the port Railway's proxy forwards to. It must match whatever port the server actually binds to (whatever `PORT` env var Railway injects — in our case 8080). Setting it to 3000 (the local dev default) causes 502 errors on every request even though the build and deploy succeed.
 
 ---
 
@@ -171,6 +172,39 @@ This runs every time the SW starts and ensures the alarm always exists.
 
 ---
 
+---
+
+## Phase 6 Retrospective: Deployment
+
+### What Worked Well
+
+- **`better-sqlite3` on Railway just works.** It's a native C++ addon that needs to be compiled for the target OS. Because Railway runs `npm install` during the build phase on a Linux container, it compiles correctly for Linux automatically. No special config needed — just don't commit `node_modules`.
+- **Negative snooze works against production too.** `{"action":"snooze","minutes":-60}` is just as useful for forcing a task due on prod as it is locally. No special test tooling needed.
+- **The server code needed zero changes to run on Railway.** `process.env.PORT || 3000` handled everything. The architecture was cloud-ready from day one.
+- **Volume + env vars were the entire deployment config.** Two variables (`DATA_FILE`, `JWT_SECRET`) and one volume mount. That's all it took.
+
+---
+
+### What Didn't Go Well
+
+- **The Railway domain target port trap.** When you generate a domain in Railway, it asks for a target port. The natural instinct is to enter `3000` (the local dev port). This is wrong — Railway injects its own `PORT` env var (8080 in our case) and the server binds to that. The domain must proxy to 8080, not 3000. This caused a 502 that looked like a server crash when the server was actually running fine. The deploy logs showed "Synapse server listening on port 8080" the whole time.
+- **Two separate accounts caused a confusing test gap.** We registered one account via curl (`test@test.com`) and a second via the extension. The extension's background worker polls with the extension account's token. Forcing a task due on the curl account's task produced no notification because the worker never saw it. Took a few minutes to identify the mismatch. Always test notifications with the same account the extension is logged into.
+- **502 is ambiguous.** It can mean the server crashed, the server hasn't started yet, or the proxy is pointing at the wrong port. Check deploy logs first before assuming a code problem.
+
+---
+
+### What I Wish I Knew Before Starting
+
+1. **Railway's injected `PORT` is not 3000.** It's whatever Railway decides (8080 in our deployment). When generating a domain, enter the actual port the server binds to — check the deploy logs for "listening on port X" to confirm.
+
+2. **A successful build does not mean a healthy server.** Railway shows a green deploy even if the server crashes immediately after starting. Always check the Deploy Logs tab (inside a specific deployment) to see runtime output. A 502 with a green deploy means the process started but isn't accepting connections — usually a wrong proxy port or a runtime crash.
+
+3. **Test notifications with the account the extension is logged into.** If you force a task due via curl using one token and the extension is logged in as a different account, no notification will fire. The background worker only fetches tasks for its stored token. Keep one account for everything during testing.
+
+4. **The root URL returns 404 — that's correct.** The backend has no `/` route. Visiting `https://your-app.up.railway.app` in a browser will show "not found." Test with `GET /tasks` (which returns 401 when unauthenticated) to confirm the server is up.
+
+---
+
 ## Phase Completion Status
 
 | Phase | Description | Status |
@@ -180,4 +214,4 @@ This runs every time the SW starts and ensures the alarm always exists.
 | 3 | Extension: Manifest, Options & Login | Done |
 | 4 | Extension: Popup (Quick-capture & Task List) | Done |
 | 5 | Extension: Background Worker & Notifications | Done |
-| 6 | Deployment | Pending |
+| 6 | Deployment | Done |
