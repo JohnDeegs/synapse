@@ -37,8 +37,8 @@ node server.js
 3. Set the **Root Directory** to `server`
 
 ### 2. Add a persistent volume
-1. In your Railway service, go to **Settings → Volumes**
-2. Add a volume, mount path: `/data`
+1. In your Railway service, click **Add Volume**
+2. Set the mount path to `/data`
 
 ### 3. Set environment variables
 In Railway → **Variables**, add:
@@ -50,8 +50,12 @@ In Railway → **Variables**, add:
 
 > Do **not** set `PORT` — Railway injects it automatically.
 
-### 4. Deploy
-Railway will auto-deploy on push to `main`. Once deployed, copy the generated URL (e.g. `https://synapse-production.up.railway.app`).
+### 4. Generate a domain and deploy
+1. In your Railway service, go to **Settings → Networking** → **Generate Domain**
+2. When prompted for a target port, check your **Deploy Logs** for the line `Synapse server listening on port XXXX` and enter that port number (Railway injects its own `PORT` — it is not always 3000)
+3. Railway auto-deploys on push to `main`. Once the deploy log shows the server listening, copy the generated URL (e.g. `https://synapse-production.up.railway.app`)
+
+> **Tip:** To confirm the server is up, `GET /tasks` should return `401`. The root URL (`/`) returns 404 — that is expected, there is no index route.
 
 ### 5. Point the extension at production
 1. Open the extension Options page
