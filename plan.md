@@ -87,34 +87,27 @@ Unlike a standard "Snooze," a **Check-in** requires the user to provide a brief 
 
 ### 7.2 Backend
 * **Runtime:** Vanilla Node.js (`http.createServer`, no framework).
-* **Storage:** Single `tasks.json` flat file on a Railway persistent volume.
-* **Auth:** Static API key passed as a request header (`X-API-Key`).
+* **Storage:** SQLite via `better-sqlite3` on a Railway persistent volume.
+* **Auth:** JWT (`jsonwebtoken` + `bcryptjs`), passed as `Authorization: Bearer <token>` header. Multi-user.
 * **Endpoints:**
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
-| `GET` | `/tasks` | Return all active tasks |
+| `POST` | `/auth/register` | Create account, return JWT |
+| `POST` | `/auth/login` | Verify credentials, return JWT |
+| `GET` | `/tasks` | Return active tasks for authenticated user |
 | `POST` | `/tasks` | Create a new task |
 | `PATCH` | `/tasks/:id` | Update task (check-in, complete, snooze) |
-| `DELETE` | `/tasks/:id` | Delete a task |
+| `DELETE` | `/tasks/:id` | Delete a task (must own it) |
 
 ### 7.3 Data Model
-Each task stored in `tasks.json` follows this schema:
-```json
-{
-  "id": "uuid",
-  "title": "string",
-  "description": "string (GFM markdown)",
-  "priority": "P0|P1|P2|P3|P4",
-  "createdAt": "ISO 8601 timestamp",
-  "nextReminder": "ISO 8601 timestamp",
-  "checkinCount": 0,
-  "status": "active|completed|snoozed",
-  "checkinLog": [
-    { "timestamp": "ISO 8601 timestamp", "note": "string" }
-  ]
-}
-```
+SQLite database with three tables:
+
+**`users`**: `id`, `email`, `password_hash`, `created_at`
+
+**`tasks`**: `id`, `user_id`, `title`, `description`, `priority`, `status`, `checkin_count`, `next_reminder`, `created_at`
+
+**`checkin_log`**: `id`, `task_id`, `note`, `created_at`
 
 ---
 
@@ -126,8 +119,95 @@ Each task stored in `tasks.json` follows this schema:
 * Single-user, API-key auth.
 
 ### v2.0 (Future)
-* Android app with native push notifications, notification shade shortcut, and home screen widgets.
-* Multi-device sync with conflict resolution.
-* Escalation integrations: Telegram, WhatsApp, and Email for P0/P1 tasks that remain unread.
+See **Section 9** for full V2 feature scope. High-level:
+* Web dashboard with rich task management (tags, markdown, sort/filter, bulk actions).
+* Telegram bot with natural language interface powered by Gemini 2.5 Flash + RAG.
+* Android app (deprioritised — Telegram bot serves as mobile interface in the interim).
+
+---
+
+## 9. V2.0 Feature Scope
+
+### 9.1 Web Dashboard
+
+A full task management UI served as static files from the same Railway backend (`web/` folder). Reuses existing JWT auth — no new auth infrastructure needed.
+
+**Features:**
+* Full CRUD with inline editing (click title/description to edit in-place)
+* **Tags system** — `task_tags` join table supporting multiple tags per task. Inspired by the PARA method (Projects, Areas, Resources, Archives) and Obsidian's second-brain philosophy: flat tag namespace, filter sidebar by tag, cross-task knowledge graph over time
+* Markdown rendering for descriptions via `marked.js` (no build step, CDN import)
+* Sort/filter by priority, due date, status, tag, creation date
+* Check-in history expandable per task (from `checkin_log`)
+* Bulk actions: select multiple tasks to complete / delete / snooze
+* Live countdown timers to next reminder
+* Stats bar: total active, due today, completed this week
+
+**Backend additions required:**
+* `GET /web/*` static file serving
+* `GET /tags`, `POST /tags`, tag assignment endpoints
+* `task_tags` table in SQLite schema
+
+---
+
+### 9.2 Telegram Bot + LLM Interface
+
+**Goal:** Natural language task creation and status queries from mobile via Telegram.
+
+#### LLM: Gemini 2.5 Flash
+Selected after comparing Gemini 2.0 Flash (deprecated June 2026), Gemini 2.5 Flash, Gemini 2.5 Pro, Claude Haiku 4.5, Sonnet 4.6, and Opus 4.6.
+
+| Model | Input $/MTok | Monthly est. (heavy use) |
+| :--- | :--- | :--- |
+| Gemini 2.5 Flash | $0.30 | ~$0.72 |
+| Claude Haiku 4.5 | $1.00 | ~$2.52 |
+| Claude Sonnet 4.6 | $3.00 | ~$7.56 |
+
+**Rationale:** Gemini 2.5 Flash has a free tier for development, lowest production cost, and is completely separate from Claude Code API limits. The model sits behind an abstraction layer — swapping it is a one-line change.
+
+#### RAG Architecture
+Sending all historical tasks on every request is expensive at scale (1,000 tasks ≈ 150k tokens/request = ~$108/month on Haiku). Instead:
+* Tasks are stored as vector embeddings
+* Each LLM request retrieves the top 10–15 semantically relevant tasks (~3,000 tokens total)
+* Cost stays flat regardless of how many completed tasks accumulate
+* System prompt + static content eligible for prompt caching (90% discount on cached tokens)
+* Estimated cost at 20 messages/day: **~$0.72/month**
+
+#### Interaction Model (Function/Tool Calling)
+The LLM picks from a defined set of actions — it never executes free-form code or SQL:
+* *"What's on my plate today?"* → `list_tasks(filter: due_today)`
+* *"Remind me to review the contract, it's critical"* → `create_task(title, priority: P0)`
+* *"Mark the budget report done"* → `complete_task(id)`
+* *"Summarise my week"* → `get_stats(period: week)`
+
+#### Security
+* **Prompt injection mitigation:** User input is never interpolated into system instructions. LLM output is validated against a schema before any action executes.
+* **No free-form execution path:** The defined tool schema is the only surface — a malicious message can only trigger a valid action.
+
+#### Telegram Authentication
+1. User generates a short-lived one-time code (5-minute expiry) from the web dashboard
+2. User sends `/connect <code>` to the Telegram bot
+3. Server verifies the code, links Telegram `chat_id` → `user_id` in SQLite, discards code
+4. All subsequent messages authenticated by `chat_id` — no tokens in Telegram history
+
+#### Rate Limiting (Two Independent Layers)
+**Application layer** (SQLite counters per `chat_id`):
+* 10 messages/minute
+* 50 messages/hour
+* 200 messages/day
+* Bot replies with a friendly error and retry time; request never reaches the LLM API
+
+**Provider layer** (Google AI Studio):
+* Hard monthly spend cap (e.g. $10/month)
+* Email alerts at 50% and 80% of budget
+
+---
+
+### 9.3 Android App (Deprioritised)
+
+The Telegram bot serves as the mobile interface until native Android is warranted.
+
+When picked up, no backend changes are required — the REST + JWT API is already mobile-ready. The only addition is FCM (Firebase Cloud Messaging) as a new notification delivery channel alongside `chrome.notifications`.
+
+Revisit after web dashboard + Telegram bot are live and validated through real usage.
 
 ---
