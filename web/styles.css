@@ -532,6 +532,63 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
 
 .checkin-area .btn-primary { align-self: flex-start; }
 
+/* ── EasyMDE overrides ────────────────────────────────────────────────────── */
+
+.EasyMDEContainer { font-size: 13px; }
+
+.EasyMDEContainer .CodeMirror {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.EasyMDEContainer .CodeMirror:focus-within {
+  box-shadow: 0 0 0 2px rgba(26,115,232,.2);
+}
+
+.editor-toolbar {
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--surface);
+  opacity: 1;
+}
+
+.editor-toolbar button {
+  color: var(--text-secondary) !important;
+}
+
+.editor-toolbar button:hover,
+.editor-toolbar button.active {
+  background: var(--border);
+  border-color: var(--border);
+}
+
+.editor-preview {
+  background: var(--bg);
+  color: var(--text-primary);
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+/* Card desc editor: tighter toolbar */
+.card-desc .editor-toolbar {
+  padding: 2px 4px;
+}
+
+.card-desc .editor-toolbar button {
+  width: 24px;
+  height: 24px;
+  font-size: 13px;
+}
+
+.desc-editor-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 /* ── Misc ─────────────────────────────────────────────────────────────────── */
 
 .loading, .empty-state {

@@ -7,6 +7,18 @@ let allTasks  = [];
 let sortBy       = 'next_reminder';
 let filterStatus = 'active';
 let countdownTimer = null;
+let newTaskMDE = null; // EasyMDE instance for the new-task form (lazy-init)
+
+// ── EasyMDE factory ────────────────────────────────────────────────────────────
+function makeMDE(el, opts = {}) {
+  return new EasyMDE(Object.assign({
+    element: el,
+    toolbar: ['bold', 'italic', 'strikethrough', '|', 'link', 'unordered-list', 'ordered-list', '|', 'preview'],
+    spellChecker: false,
+    status: false,
+    minHeight: '80px',
+  }, opts));
+}
 
 // ── API helper ─────────────────────────────────────────────────────────────────
 async function api(method, path, body) {
@@ -166,7 +178,13 @@ function renderCard(task) {
     </div>
     <div class="card-desc">
       <div class="desc-view">${descHtml}</div>
-      <textarea class="desc-edit-input hidden" rows="3">${esc(task.description)}</textarea>
+      <div class="desc-editor-wrapper hidden">
+        <textarea class="desc-edit-input"></textarea>
+        <div class="desc-editor-actions">
+          <button class="btn-save-desc btn-primary">Save</button>
+          <button class="btn-cancel-desc btn-text">Cancel</button>
+        </div>
+      </div>
     </div>
     <div class="card-footer">
       <div class="card-tags">${tagsHtml}</div>
@@ -214,33 +232,42 @@ function renderCard(task) {
     });
   }
 
-  // ── Inline editing: description ───────────────────────────────────────────
+  // ── Inline editing: description (EasyMDE) ────────────────────────────────
   if (isActive) {
-    const descView = el.querySelector('.desc-view');
-    const descEdit = el.querySelector('.desc-edit-input');
-    descView.addEventListener('click', () => {
+    const descView    = el.querySelector('.desc-view');
+    const descWrapper = el.querySelector('.desc-editor-wrapper');
+    const descTextarea = el.querySelector('.desc-edit-input');
+    let mde = null;
+
+    const openEditor = () => {
       descView.classList.add('hidden');
-      descEdit.classList.remove('hidden');
-      descEdit.focus();
-    });
-    const saveDesc = async () => {
-      const newDesc = descEdit.value;
+      descWrapper.classList.remove('hidden');
+      if (!mde) {
+        mde = makeMDE(descTextarea, { initialValue: task.description });
+      }
+      mde.codemirror.focus();
+    };
+
+    const closeEditor = () => {
+      if (mde) { mde.toTextArea(); mde = null; }
+      descWrapper.classList.add('hidden');
+      descView.classList.remove('hidden');
+    };
+
+    descView.addEventListener('click', openEditor);
+
+    el.querySelector('.btn-save-desc').addEventListener('click', async () => {
+      const newDesc = mde ? mde.value() : descTextarea.value;
       if (newDesc !== task.description) {
         try {
           await patchTask(task.id, { action: 'update', title: task.title, description: newDesc });
-        } catch (err) {
-          alert('Failed to save: ' + err.message);
-          renderTasks();
-        }
+        } catch (err) { alert('Failed to save: ' + err.message); closeEditor(); }
       } else {
-        descView.classList.remove('hidden');
-        descEdit.classList.add('hidden');
+        closeEditor();
       }
-    };
-    descEdit.addEventListener('blur', saveDesc);
-    descEdit.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { descView.classList.remove('hidden'); descEdit.classList.add('hidden'); }
     });
+
+    el.querySelector('.btn-cancel-desc').addEventListener('click', closeEditor);
   }
 
   // ── Card actions ──────────────────────────────────────────────────────────
@@ -344,10 +371,14 @@ function init() {
   // Logout
   document.getElementById('btn-logout').addEventListener('click', logout);
 
-  // New task form toggle
+  // New task form toggle — lazy-init EasyMDE on first open
   document.getElementById('btn-new-task').addEventListener('click', () => {
-    document.getElementById('new-task-form').classList.toggle('hidden');
-    if (!document.getElementById('new-task-form').classList.contains('hidden')) {
+    const form = document.getElementById('new-task-form');
+    form.classList.toggle('hidden');
+    if (!form.classList.contains('hidden')) {
+      if (!newTaskMDE) {
+        newTaskMDE = makeMDE(document.getElementById('new-desc'), { minHeight: '120px' });
+      }
       document.getElementById('new-title').focus();
     }
   });
@@ -359,15 +390,15 @@ function init() {
   document.getElementById('btn-create-task').addEventListener('click', async () => {
     const title = document.getElementById('new-title').value.trim();
     const priority = document.getElementById('new-priority').value;
-    const description = document.getElementById('new-desc').value.trim();
+    const description = newTaskMDE ? newTaskMDE.value().trim() : '';
     const errEl = document.getElementById('create-error');
     errEl.textContent = '';
     if (!title) { errEl.textContent = 'Title is required.'; return; }
     try {
       await createTask(title, priority, description);
       document.getElementById('new-title').value = '';
-      document.getElementById('new-desc').value = '';
       document.getElementById('new-priority').value = 'P2';
+      if (newTaskMDE) newTaskMDE.value('');
       document.getElementById('new-task-form').classList.add('hidden');
     } catch (err) { errEl.textContent = err.message; }
   });
