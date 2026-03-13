@@ -775,6 +775,12 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
 
 .tag-remove:hover { opacity: 1; }
 
+.tag-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 /* ── Tag picker (card) ────────────────────────────────────────────────────── */
 
 .tag-picker {

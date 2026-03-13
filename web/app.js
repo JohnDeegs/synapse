@@ -269,11 +269,11 @@ function renderCard(task) {
     `<span class="tag-chip"><span>${esc(t.name)}</span><button class="tag-remove" data-tag-id="${t.id}" title="Remove tag">×</button></span>`
   ).join('');
 
-  // Tag picker: tags not already on this task
+  // Tag picker: always show, listing tags not already on this task
   const availableTags = allTags.filter(t => !(task.tags || []).some(tt => tt.id === t.id));
   const tagPickerHtml = availableTags.length > 0
-    ? `<select class="tag-picker"><option value="">+ Add tag</option>${availableTags.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select>`
-    : '';
+    ? `<select class="tag-picker"><option value="">+ tag</option>${availableTags.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select>`
+    : (allTags.length === 0 ? `<span class="tag-hint">← Create a tag</span>` : '');
 
   const actionsHtml = isActive ? `
     <button class="btn-action btn-complete">✓ Complete</button>
@@ -513,8 +513,8 @@ function showApp() {
   document.getElementById('view-login').classList.add('hidden');
   document.getElementById('view-app').classList.remove('hidden');
   document.getElementById('user-email').textContent = userEmail || '';
-  fetchTags();
-  fetchTasks();
+  // Load tags first so tag pickers are populated when task cards render
+  fetchTags().then(() => fetchTasks()).catch(e => console.error(e));
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(updateCountdowns, 30_000);
 }
