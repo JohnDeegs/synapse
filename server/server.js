@@ -221,6 +221,13 @@ async function handleAssignTag(req, res, user, taskId) {
   send(res, 200, { ok: true });
 }
 
+async function handleGetCheckins(req, res, user, taskId) {
+  const task = getTaskById(taskId);
+  if (!task) return send(res, 404, { error: 'Task not found' });
+  if (task.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+  send(res, 200, stmts.getCheckins.all(taskId));
+}
+
 async function handleRemoveTag(req, res, user, taskId, tagId) {
   const task = getTaskById(taskId);
   if (!task) return send(res, 404, { error: 'Task not found' });
@@ -263,9 +270,11 @@ const server = http.createServer(async (req, res) => {
     // Nested task-tag routes: /tasks/:id/tags and /tasks/:id/tags/:tagId
     // Split: ['', 'tasks', '<id>', 'tags', '<tagId?>']
     const parts = url.split('/');
-    const isTaskTagsRoute = parts[1] === 'tasks' && parts[3] === 'tags' && /^\d+$/.test(parts[2]);
+    const isTaskTagsRoute     = parts[1] === 'tasks' && parts[3] === 'tags'     && /^\d+$/.test(parts[2]);
+    const isTaskCheckinsRoute = parts[1] === 'tasks' && parts[3] === 'checkins' && /^\d+$/.test(parts[2]);
     if (isTaskTagsRoute && req.method === 'POST'   && parts.length === 4) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleAssignTag(req, res, u, parseInt(parts[2], 10)); }
     if (isTaskTagsRoute && req.method === 'DELETE' && parts.length === 5 && /^\d+$/.test(parts[4])) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleRemoveTag(req, res, u, parseInt(parts[2], 10), parseInt(parts[4], 10)); }
+    if (isTaskCheckinsRoute && req.method === 'GET' && parts.length === 4) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetCheckins(req, res, u, parseInt(parts[2], 10)); }
 
     // Task routes — require auth
     const taskMatch = url.match(/^\/tasks\/(\d+)$/);
