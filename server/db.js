@@ -34,6 +34,21 @@ db.exec(`
     note TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, name)
+  );
+
+  CREATE TABLE IF NOT EXISTS task_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    tag_id  INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
+    UNIQUE(task_id, tag_id)
+  );
 `);
 
 // Prepared statements
@@ -75,6 +90,29 @@ const stmts = {
   ),
   getCheckins: db.prepare(
     'SELECT * FROM checkin_log WHERE task_id = ? ORDER BY created_at ASC'
+  ),
+
+  // Tags
+  createTag: db.prepare(
+    'INSERT INTO tags (user_id, name) VALUES (?, ?) RETURNING id, name'
+  ),
+  getTagsByUser: db.prepare(
+    'SELECT id, name FROM tags WHERE user_id = ? ORDER BY name ASC'
+  ),
+  getTagById: db.prepare(
+    'SELECT * FROM tags WHERE id = ?'
+  ),
+  assignTag: db.prepare(
+    'INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?, ?)'
+  ),
+  removeTag: db.prepare(
+    'DELETE FROM task_tags WHERE task_id = ? AND tag_id = ?'
+  ),
+  getTagsForTask: db.prepare(
+    'SELECT t.id, t.name FROM tags t JOIN task_tags tt ON tt.tag_id = t.id WHERE tt.task_id = ?'
+  ),
+  getTagsByUserForTasks: db.prepare(
+    'SELECT tt.task_id, t.id, t.name FROM task_tags tt JOIN tags t ON t.id = tt.tag_id JOIN tasks tk ON tk.id = tt.task_id WHERE tk.user_id = ?'
   ),
 };
 
