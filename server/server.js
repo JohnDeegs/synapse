@@ -1,5 +1,7 @@
 require('dotenv').config();
 const http = require('http');
+const fs   = require('fs');
+const path = require('path');
 const { stmts } = require('./db');
 const { hashPassword, verifyPassword, signToken, verifyToken } = require('./auth');
 const {
@@ -8,6 +10,14 @@ const {
 } = require('./tasks');
 
 const PORT = process.env.PORT || 3000;
+
+const WEB_DIR = path.resolve(__dirname, '..', 'web');
+const CONTENT_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js':   'text/javascript',
+  '.css':  'text/css',
+  '.json': 'application/json',
+};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -86,6 +96,13 @@ async function handleLogin(req, res) {
 
 async function handleGetTasks(req, res, user) {
   const tasks = getActiveTasks(user.userId);
+  const tagRows = stmts.getTagsByUserForTasks.all(user.userId);
+  const tagMap = new Map();
+  for (const row of tagRows) {
+    if (!tagMap.has(row.task_id)) tagMap.set(row.task_id, []);
+    tagMap.get(row.task_id).push({ id: row.id, name: row.name });
+  }
+  for (const task of tasks) task.tags = tagMap.get(task.id) || [];
   send(res, 200, tasks);
 }
 
@@ -136,6 +153,80 @@ async function handleDeleteTask(req, res, user, id) {
   send(res, 200, { deleted: true });
 }
 
+// ── Static file serving ───────────────────────────────────────────────────────
+
+function handleStaticFile(req, res) {
+  let filePath = req.url.split('?')[0].slice('/web'.length) || '/index.html';
+  if (filePath === '/') filePath = '/index.html';
+
+  const resolved = path.resolve(WEB_DIR, filePath.replace(/^\//, ''));
+  if (!resolved.startsWith(WEB_DIR + path.sep) && resolved !== WEB_DIR) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    return res.end('Forbidden');
+  }
+
+  const ext = path.extname(resolved);
+  const contentType = CONTENT_TYPES[ext] || 'application/octet-stream';
+
+  fs.readFile(resolved, (err, data) => {
+    if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('Not found'); }
+    res.writeHead(200, { 'Content-Type': contentType });
+    res.end(data);
+  });
+}
+
+// ── Tag route handlers ────────────────────────────────────────────────────────
+
+async function handleGetTags(req, res, user) {
+  send(res, 200, stmts.getTagsByUser.all(user.userId));
+}
+
+async function handleCreateTag(req, res, user) {
+  let body;
+  try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+  const name = (body.name || '').trim();
+  if (!name) return send(res, 400, { error: 'name required' });
+  try {
+    const tag = stmts.createTag.get(user.userId, name);
+    send(res, 201, tag);
+  } catch (e) {
+    if (e.message && e.message.includes('UNIQUE constraint failed'))
+      return send(res, 409, { error: 'Tag name already exists' });
+    throw e;
+  }
+}
+
+async function handleAssignTag(req, res, user, taskId) {
+  let body;
+  try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+  const { tagId } = body;
+  if (!tagId || typeof tagId !== 'number') return send(res, 400, { error: 'tagId required' });
+
+  const task = getTaskById(taskId);
+  if (!task) return send(res, 404, { error: 'Task not found' });
+  if (task.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+
+  const tag = stmts.getTagById.get(tagId);
+  if (!tag) return send(res, 404, { error: 'Tag not found' });
+  if (tag.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+
+  stmts.assignTag.run(taskId, tagId);
+  send(res, 200, { ok: true });
+}
+
+async function handleRemoveTag(req, res, user, taskId, tagId) {
+  const task = getTaskById(taskId);
+  if (!task) return send(res, 404, { error: 'Task not found' });
+  if (task.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+
+  const tag = stmts.getTagById.get(tagId);
+  if (!tag) return send(res, 404, { error: 'Tag not found' });
+  if (tag.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+
+  stmts.removeTag.run(taskId, tagId);
+  send(res, 200, { ok: true });
+}
+
 // ── Server ────────────────────────────────────────────────────────────────────
 
 const server = http.createServer(async (req, res) => {
@@ -154,6 +245,20 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'POST' && url === '/auth/register') return await handleRegister(req, res);
     if (req.method === 'POST' && url === '/auth/login')    return await handleLogin(req, res);
+
+    // Static file serving — unauthenticated
+    if (url === '/web' || url.startsWith('/web/')) return handleStaticFile(req, res);
+
+    // Tag routes — require auth
+    if (req.method === 'GET'  && url === '/tags') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetTags(req, res, u); }
+    if (req.method === 'POST' && url === '/tags') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleCreateTag(req, res, u); }
+
+    // Nested task-tag routes: /tasks/:id/tags and /tasks/:id/tags/:tagId
+    // Split: ['', 'tasks', '<id>', 'tags', '<tagId?>']
+    const parts = url.split('/');
+    const isTaskTagsRoute = parts[1] === 'tasks' && parts[3] === 'tags' && /^\d+$/.test(parts[2]);
+    if (isTaskTagsRoute && req.method === 'POST'   && parts.length === 4) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleAssignTag(req, res, u, parseInt(parts[2], 10)); }
+    if (isTaskTagsRoute && req.method === 'DELETE' && parts.length === 5 && /^\d+$/.test(parts[4])) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleRemoveTag(req, res, u, parseInt(parts[2], 10), parseInt(parts[4], 10)); }
 
     // Task routes — require auth
     const taskMatch = url.match(/^\/tasks\/(\d+)$/);
