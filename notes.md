@@ -265,6 +265,30 @@ This runs every time the SW starts and ensures the alarm always exists.
 
 ---
 
+## Phase 9: Web Dashboard — Tags, Check-in History & Bulk Actions
+
+### What Was Built
+
+All Phase 9 features were implemented across 5 commits on `phase/9-web-advanced`:
+
+1. **Tags filter sidebar** — `GET /tags` on load; clickable chips filter tasks; "All" clears filter
+2. **Tag autocomplete on task cards** — replaced `<select>` with a typeahead text input (filters matching tags as you type, keyboard navigation with arrows, Enter to assign, Escape to close). Scales to 50+ tags without UX degradation.
+3. **Check-in history** — expandable section per card; fetches `GET /tasks/:id/checkins`; shows note + timestamp per entry
+4. **Bulk actions** — checkbox per card, select-all in header, action bar (Complete / Delete / Snooze 1hr) fires parallel requests then refreshes list
+5. **Compound filtering** — tag filter, status filter, and sort all apply together client-side on the full task cache
+
+### Key decisions
+
+- **Autocomplete over `<select>`**: user correctly flagged that a 50-tag dropdown is unusable. Custom typeahead with `mousedown` (not `click`) on suggestions prevents the input `blur` event from closing the dropdown before the click registers.
+- **Race condition fix**: `showApp()` now chains `fetchTags().then(() => fetchTasks())` so `allTags` is always populated before cards render. Previously, parallel fetch meant tag pickers sometimes rendered empty.
+- **Tag picker visibility logic**: picker only shows if there are unassigned tags remaining; hides entirely when all tags are assigned (clean, not a disabled state).
+
+### Status at pause
+
+Implementation complete and committed. **Testing against the Phase 9 test matrix has not been done yet.** Pick up by running through `tasksV2.md` Phase 9 testing steps 1–9.
+
+---
+
 ## Phase Completion Status
 
 | Phase | Description | Status |
@@ -277,3 +301,4 @@ This runs every time the SW starts and ensures the alarm always exists.
 | 6 | Deployment | Done |
 | 7 | Backend: Tags & Web Static Serving | Done |
 | 8 | Web Dashboard: Core UI | Done |
+| 9 | Web Dashboard: Tags, Check-in History & Bulk Actions | Implemented, untested |
