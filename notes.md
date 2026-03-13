@@ -237,6 +237,34 @@ This runs every time the SW starts and ensures the alarm always exists.
 
 ---
 
+## Phase 8: Web Dashboard — Core UI
+
+### What Worked Well
+
+- **`GET /tasks?status=all` pattern is clean.** Adding a single query param to the existing route preserves full backward compatibility with the Chrome extension (which only wants active tasks) while giving the web dashboard everything it needs to filter client-side. No new endpoints.
+- **`action: 'update'` fits the existing patch pattern naturally.** All mutation goes through `PATCH /tasks/:id` with an action discriminator. Adding a new action for title/description edits required zero routing changes — just a new branch in `handlePatchTask`.
+- **EasyMDE via CDN drops in with no build step.** The lazy-init pattern (create instance on first open) avoids layout issues from initialising CodeMirror on a hidden element. `mde.toTextArea()` cleanly tears it down without DOM leaks.
+- **Client-side sort/filter on a full task cache is the right call.** Fetching `?status=all` once and filtering in JS means toggling filters and sort order is instant with no round trips. Stats bar updates are also free.
+- **Save/Cancel for description editing is better UX than blur-to-save.** Blur would fire when the user clicked a toolbar button inside the editor, causing premature saves. Explicit buttons eliminate that class of bug entirely.
+
+---
+
+### What Didn't Go Well
+
+- **Server must be restarted after backend changes.** The old process was still running when backend edits landed — initial API tests against stale code produced confusing results. Always kill and restart after touching server files.
+
+---
+
+### What I Wish I Knew Before Starting
+
+1. **EasyMDE needs the element to be visible when initialised.** Calling `new EasyMDE({ element })` on a hidden textarea produces a zero-height CodeMirror canvas that never recovers. Lazy-init (create the instance when the form/wrapper is first revealed) is the fix.
+
+2. **`mde.toTextArea()` is necessary before DOM removal only if you need cleanup.** In practice, since `renderTasks()` blows away the entire card DOM anyway, the MDE instance is GC'd naturally. But calling `toTextArea()` before the patch resolves (i.e. in Cancel) is still the right habit.
+
+3. **Design note carried from Phase 7:** The Buganizer aesthetic (Material, left nav space, priority badges P0–P4 as coloured chips) is deliberate. Phase 9 will add the tags filter sidebar to the left. Keep the layout flexible for that.
+
+---
+
 ## Phase Completion Status
 
 | Phase | Description | Status |
@@ -248,3 +276,4 @@ This runs every time the SW starts and ensures the alarm always exists.
 | 5 | Extension: Background Worker & Notifications | Done |
 | 6 | Deployment | Done |
 | 7 | Backend: Tags & Web Static Serving | Done |
+| 8 | Web Dashboard: Core UI | Done |
