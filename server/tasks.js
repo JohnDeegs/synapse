@@ -75,6 +75,15 @@ function deleteTask(id, userId) {
   return info.changes > 0;
 }
 
+function updateTaskContent(task, { title, description }) {
+  stmts.updateTaskContent.run({
+    id: task.id,
+    title: title !== undefined ? title.trim() : task.title,
+    description: description !== undefined ? description : task.description,
+  });
+  return stmts.getTaskById.get(task.id);
+}
+
 module.exports = {
   BASE_INTERVALS,
   calcNextReminder,
@@ -85,4 +94,5 @@ module.exports = {
   completeTask,
   snoozeTask,
   deleteTask,
+  updateTaskContent,
 };

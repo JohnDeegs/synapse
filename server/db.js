@@ -70,6 +70,9 @@ const stmts = {
   getActiveTasks: db.prepare(
     "SELECT * FROM tasks WHERE user_id = ? AND status = 'active' ORDER BY next_reminder ASC"
   ),
+  getAllTasks: db.prepare(
+    'SELECT * FROM tasks WHERE user_id = ? ORDER BY next_reminder ASC'
+  ),
   getTaskById: db.prepare(
     'SELECT * FROM tasks WHERE id = ?'
   ),
@@ -83,6 +86,9 @@ const stmts = {
   deleteTask: db.prepare(
     'DELETE FROM tasks WHERE id = ? AND user_id = ?'
   ),
+  updateTaskContent: db.prepare(`
+    UPDATE tasks SET title = @title, description = @description WHERE id = @id
+  `),
 
   // Checkin log
   addCheckin: db.prepare(

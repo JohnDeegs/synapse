@@ -6,7 +6,7 @@ const { stmts } = require('./db');
 const { hashPassword, verifyPassword, signToken, verifyToken } = require('./auth');
 const {
   createTask, getActiveTasks, getTaskById,
-  checkinTask, completeTask, snoozeTask, deleteTask,
+  checkinTask, completeTask, snoozeTask, deleteTask, updateTaskContent,
 } = require('./tasks');
 
 const PORT = process.env.PORT || 3000;
@@ -95,7 +95,9 @@ async function handleLogin(req, res) {
 // ── Task route handlers ───────────────────────────────────────────────────────
 
 async function handleGetTasks(req, res, user) {
-  const tasks = getActiveTasks(user.userId);
+  const qs = req.url.includes('?') ? new URLSearchParams(req.url.split('?')[1]) : null;
+  const statusFilter = qs ? qs.get('status') : null;
+  const tasks = statusFilter === 'all' ? stmts.getAllTasks.all(user.userId) : getActiveTasks(user.userId);
   const tagRows = stmts.getTagsByUserForTasks.all(user.userId);
   const tagMap = new Map();
   for (const row of tagRows) {
@@ -128,6 +130,11 @@ async function handlePatchTask(req, res, user, id) {
 
   const { action, note, minutes } = body;
 
+  if (action === 'update') {
+    if (body.title === undefined && body.description === undefined) return send(res, 400, { error: 'title or description required' });
+    const updated = updateTaskContent(task, { title: body.title, description: body.description });
+    return send(res, 200, updated);
+  }
   if (action === 'checkin') {
     const updated = checkinTask(task, note || '');
     return send(res, 200, updated);
