@@ -56,7 +56,7 @@
 
     <div class="app-body">
 
-      <!-- Stats Bar -->
+      <!-- Stats Bar (full width) -->
       <div class="stats-bar">
         <div class="stat-item">
           <span id="stat-active" class="stat-num">0</span>
@@ -72,53 +72,93 @@
         </div>
       </div>
 
-      <!-- Controls -->
-      <div class="controls-bar">
-        <div class="filter-group">
-          <label>Status:
-            <select id="filter-status">
-              <option value="active">Active</option>
-              <option value="completed">Completed</option>
-              <option value="all">All</option>
+      <!-- Two-column layout: sidebar + main -->
+      <div class="app-layout">
+
+        <!-- Left Sidebar: Tags -->
+        <aside class="sidebar">
+          <div class="sidebar-section">
+            <h3 class="sidebar-heading">Filter by Tag</h3>
+            <div id="tag-filters">
+              <!-- chips rendered by JS -->
+            </div>
+          </div>
+          <div class="sidebar-section">
+            <h3 class="sidebar-heading">New Tag</h3>
+            <div class="create-tag-form">
+              <input type="text" id="new-tag-name" placeholder="Tag name" maxlength="40">
+              <button id="btn-create-tag" class="btn-primary">+</button>
+            </div>
+            <div id="create-tag-error" class="error-msg"></div>
+          </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+
+          <!-- Controls -->
+          <div class="controls-bar">
+            <div class="filter-group">
+              <label class="select-all-label">
+                <input type="checkbox" id="select-all" title="Select all visible tasks">
+                All
+              </label>
+              <label>Status:
+                <select id="filter-status">
+                  <option value="active">Active</option>
+                  <option value="completed">Completed</option>
+                  <option value="all">All</option>
+                </select>
+              </label>
+              <label>Sort:
+                <select id="sort-by">
+                  <option value="next_reminder">Next reminder</option>
+                  <option value="priority">Priority</option>
+                  <option value="created_at">Created</option>
+                </select>
+              </label>
+            </div>
+            <button id="btn-new-task" class="btn-primary">+ New Task</button>
+          </div>
+
+          <!-- Bulk Action Bar (hidden until tasks selected) -->
+          <div id="bulk-bar" class="bulk-bar hidden">
+            <span id="bulk-count">0 selected</span>
+            <button id="btn-bulk-complete" class="btn-action">✓ Complete</button>
+            <button id="btn-bulk-snooze" class="btn-action">⏰ Snooze 1h</button>
+            <button id="btn-bulk-delete" class="btn-action btn-danger-action">✕ Delete</button>
+            <button id="btn-bulk-clear" class="btn-text">Clear</button>
+          </div>
+
+          <!-- New Task Form -->
+          <div id="new-task-form" class="new-task-form hidden">
+            <h3>New Task</h3>
+            <input type="text" id="new-title" placeholder="Task title" required>
+            <select id="new-priority">
+              <option value="P0">P0 – Critical (every 30 min)</option>
+              <option value="P1">P1 – High (every 2 hr)</option>
+              <option value="P2" selected>P2 – Medium (every 24 hr)</option>
+              <option value="P3">P3 – Low (every 3 days)</option>
+              <option value="P4">P4 – Future (weekly)</option>
             </select>
-          </label>
-          <label>Sort:
-            <select id="sort-by">
-              <option value="next_reminder">Next reminder</option>
-              <option value="priority">Priority</option>
-              <option value="created_at">Created</option>
-            </select>
-          </label>
-        </div>
-        <button id="btn-new-task" class="btn-primary">+ New Task</button>
-      </div>
+            <textarea id="new-desc" placeholder="Description (Markdown supported)" rows="3"></textarea>
+            <div id="create-error" class="error-msg"></div>
+            <div class="form-actions">
+              <button id="btn-create-task" class="btn-primary">Create</button>
+              <button id="btn-cancel-task" class="btn-text">Cancel</button>
+            </div>
+          </div>
 
-      <!-- New Task Form -->
-      <div id="new-task-form" class="new-task-form hidden">
-        <h3>New Task</h3>
-        <input type="text" id="new-title" placeholder="Task title" required>
-        <select id="new-priority">
-          <option value="P0">P0 – Critical (every 30 min)</option>
-          <option value="P1">P1 – High (every 2 hr)</option>
-          <option value="P2" selected>P2 – Medium (every 24 hr)</option>
-          <option value="P3">P3 – Low (every 3 days)</option>
-          <option value="P4">P4 – Future (weekly)</option>
-        </select>
-        <textarea id="new-desc" placeholder="Description (Markdown supported)" rows="3"></textarea>
-        <div id="create-error" class="error-msg"></div>
-        <div class="form-actions">
-          <button id="btn-create-task" class="btn-primary">Create</button>
-          <button id="btn-cancel-task" class="btn-text">Cancel</button>
-        </div>
-      </div>
+          <!-- Task List -->
+          <div id="task-list">
+            <div class="loading">Loading tasks…</div>
+          </div>
 
-      <!-- Task List -->
-      <div id="task-list">
-        <div class="loading">Loading tasks…</div>
-      </div>
+        </main>
+      </div><!-- .app-layout -->
 
-    </div>
-  </div>
+    </div><!-- .app-body -->
+  </div><!-- #view-app -->
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
