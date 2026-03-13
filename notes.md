@@ -205,6 +205,38 @@ This runs every time the SW starts and ensures the alarm always exists.
 
 ---
 
+## Phase 7: Tags, Static Serving, and Nested Routes
+
+### What Worked Well
+
+- **`CREATE TABLE IF NOT EXISTS` makes schema additions zero-friction.** Adding two new tables to the existing `db.exec` block just works on server startup — no migration runner, no separate scripts. The SQLite idempotent schema pattern scales cleanly to V2.
+- **`INSERT OR IGNORE` on `assignTag` is the right call.** Re-assigning a tag that's already on a task is a silent no-op rather than a 409 error. The client doesn't need to track state about what's already assigned.
+- **`ON DELETE CASCADE` on `task_tags` means zero cleanup code.** Deleting a task or a tag automatically removes the join rows. Never have to write a compensating delete.
+- **Batch-loading tags with one query avoids N+1.** `getTagsByUserForTasks` returns all task-tag pairs for a user in a single query. Grouping them into a `Map<taskId → [{id, name}]>` in the server is two loops and no extra DB round trips, regardless of how many tasks exist.
+- **`path.resolve` + `startsWith` for path traversal prevention is simple and correct.** No regex needed — resolve the requested path and assert it starts with the known safe directory.
+
+---
+
+### What Didn't Go Well
+
+- **`curl` was blocked by shell permissions in the test environment.** Had to fall back to an inline Node.js `http.request` test script. Not a code problem, but a local environment constraint worth knowing. On a clean dev machine, `curl` is the faster tool for manual endpoint checks.
+
+---
+
+### What I Wish I Knew Before Starting
+
+1. **`RETURNING` statements require `.get()`, not `.run()`.** `better-sqlite3` methods: `.run()` returns metadata (`{ changes, lastInsertRowid }`), `.get()` returns the first row, `.all()` returns all rows. Any `INSERT ... RETURNING` must use `.get()`. Using `.run()` on a `RETURNING` statement returns the metadata object, not the row — a silent type mismatch that surfaces only when you try to access `result.id`.
+
+2. **Distinguish nested route depths by `parts.length`.** For manual URL routing with nested paths like `/tasks/:id/tags` and `/tasks/:id/tags/:tagId`, `url.split('/')` gives arrays of length 4 and 5 respectively. Check `parts.length` to differentiate POST (create association) from DELETE (remove association). Using a regex would work but this is cleaner.
+
+3. **`path.sep` in the traversal check matters.** The check is `resolved.startsWith(WEB_DIR + path.sep)` not just `startsWith(WEB_DIR)`. Without `path.sep`, a directory named `web-evil` at the same level would pass the prefix check because `WEB_DIR` is a prefix of its path. The separator makes the boundary explicit.
+
+4. **The static file handler can't be `async`.** It uses `fs.readFile` with a callback. The outer `try/catch` in the request handler does NOT catch errors thrown inside that callback. This is safe because `fs.readFile` errors are handled inline via the `if (err)` check — but don't refactor it to throw inside the callback expecting the outer catch to handle it.
+
+5. **Design note for Phase 8+: Buganizer aesthetic.** The web dashboard is intended to feel like Google's internal Buganizer issue tracker — clean Material-style layout, left nav sidebar, table view with priority badges (P0–P4), light and dark mode. This is a tribute to the priority system that inspired Synapse. Keep this visual direction in mind when building the HTML/CSS in Phase 8.
+
+---
+
 ## Phase Completion Status
 
 | Phase | Description | Status |
@@ -215,3 +247,4 @@ This runs every time the SW starts and ensures the alarm always exists.
 | 4 | Extension: Popup (Quick-capture & Task List) | Done |
 | 5 | Extension: Background Worker & Notifications | Done |
 | 6 | Deployment | Done |
+| 7 | Backend: Tags & Web Static Serving | Done |
