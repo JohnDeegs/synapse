@@ -1,1 +1,125 @@
-<h1>hello</h1>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Synapse</title>
+  <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+
+  <!-- ── Login View ── -->
+  <div id="view-login">
+    <div class="login-box">
+      <h1 class="login-brand">Synapse</h1>
+
+      <div id="auth-tabs">
+        <button class="tab-btn active" data-tab="login">Sign in</button>
+        <button class="tab-btn" data-tab="register">Register</button>
+      </div>
+
+      <form id="form-login">
+        <label class="field-label">Email
+          <input type="email" id="login-email" autocomplete="email" required>
+        </label>
+        <label class="field-label">Password
+          <input type="password" id="login-password" autocomplete="current-password" required>
+        </label>
+        <div id="login-error" class="error-msg"></div>
+        <button type="submit" class="btn-primary btn-submit-full">Sign in</button>
+      </form>
+
+      <form id="form-register" class="hidden">
+        <label class="field-label">Email
+          <input type="email" id="reg-email" autocomplete="email" required>
+        </label>
+        <label class="field-label">Password
+          <input type="password" id="reg-password" autocomplete="new-password" required>
+        </label>
+        <div id="reg-error" class="error-msg"></div>
+        <button type="submit" class="btn-primary btn-submit-full">Create account</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── App View ── -->
+  <div id="view-app" class="hidden">
+
+    <header class="app-header">
+      <span class="brand-name">Synapse</span>
+      <div class="header-right">
+        <span id="user-email" class="user-email"></span>
+        <button id="btn-logout" class="btn-text">Sign out</button>
+      </div>
+    </header>
+
+    <div class="app-body">
+
+      <!-- Stats Bar -->
+      <div class="stats-bar">
+        <div class="stat-item">
+          <span id="stat-active" class="stat-num">0</span>
+          <span class="stat-label">Active</span>
+        </div>
+        <div class="stat-item">
+          <span id="stat-due" class="stat-num stat-urgent">0</span>
+          <span class="stat-label">Due in 1h</span>
+        </div>
+        <div class="stat-item">
+          <span id="stat-completed" class="stat-num">0</span>
+          <span class="stat-label">Completed this week</span>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls-bar">
+        <div class="filter-group">
+          <label>Status:
+            <select id="filter-status">
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+              <option value="all">All</option>
+            </select>
+          </label>
+          <label>Sort:
+            <select id="sort-by">
+              <option value="next_reminder">Next reminder</option>
+              <option value="priority">Priority</option>
+              <option value="created_at">Created</option>
+            </select>
+          </label>
+        </div>
+        <button id="btn-new-task" class="btn-primary">+ New Task</button>
+      </div>
+
+      <!-- New Task Form -->
+      <div id="new-task-form" class="new-task-form hidden">
+        <h3>New Task</h3>
+        <input type="text" id="new-title" placeholder="Task title" required>
+        <select id="new-priority">
+          <option value="P0">P0 – Critical (every 30 min)</option>
+          <option value="P1">P1 – High (every 2 hr)</option>
+          <option value="P2" selected>P2 – Medium (every 24 hr)</option>
+          <option value="P3">P3 – Low (every 3 days)</option>
+          <option value="P4">P4 – Future (weekly)</option>
+        </select>
+        <textarea id="new-desc" placeholder="Description (Markdown supported)" rows="3"></textarea>
+        <div id="create-error" class="error-msg"></div>
+        <div class="form-actions">
+          <button id="btn-create-task" class="btn-primary">Create</button>
+          <button id="btn-cancel-task" class="btn-text">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Task List -->
+      <div id="task-list">
+        <div class="loading">Loading tasks…</div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="/web/app.js"></script>
+</body>
+</html>
