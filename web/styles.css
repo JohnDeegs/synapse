@@ -781,18 +781,57 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
   font-style: italic;
 }
 
-/* ── Tag picker (card) ────────────────────────────────────────────────────── */
+/* ── Tag autocomplete (card) ──────────────────────────────────────────────── */
 
-.tag-picker {
+.tag-autocomplete {
+  position: relative;
+  display: inline-block;
+}
+
+.tag-ac-input {
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 2px 6px;
+  padding: 2px 8px;
   font-size: 11px;
   font-family: inherit;
   background: var(--bg);
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  width: 80px;
+  transition: width .15s, border-color .1s;
+}
+
+.tag-ac-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  width: 120px;
+}
+
+.tag-ac-input::placeholder { color: var(--text-secondary); }
+
+.tag-ac-dropdown {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  min-width: 130px;
+  max-height: 160px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 8px rgba(0,0,0,.18);
+  z-index: 200;
+}
+
+.tag-ac-item {
+  padding: 5px 12px;
+  font-size: 12px;
   cursor: pointer;
-  max-width: 110px;
+  color: var(--text-primary);
+}
+
+.tag-ac-item:hover, .tag-ac-item.active {
+  background: var(--surface);
+  color: var(--accent);
 }
 
 /* ── Check-in history ─────────────────────────────────────────────────────── */

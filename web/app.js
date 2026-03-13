@@ -269,11 +269,13 @@ function renderCard(task) {
     `<span class="tag-chip"><span>${esc(t.name)}</span><button class="tag-remove" data-tag-id="${t.id}" title="Remove tag">×</button></span>`
   ).join('');
 
-  // Tag picker: always show, listing tags not already on this task
+  // Tag autocomplete input
   const availableTags = allTags.filter(t => !(task.tags || []).some(tt => tt.id === t.id));
-  const tagPickerHtml = availableTags.length > 0
-    ? `<select class="tag-picker"><option value="">+ tag</option>${availableTags.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select>`
-    : (allTags.length === 0 ? `<span class="tag-hint">← Create a tag</span>` : '');
+  const tagPickerHtml = allTags.length === 0
+    ? `<span class="tag-hint">← Create a tag</span>`
+    : availableTags.length > 0
+      ? `<div class="tag-autocomplete"><input class="tag-ac-input" placeholder="Add tag…" autocomplete="off"><div class="tag-ac-dropdown hidden"></div></div>`
+      : '';
 
   const actionsHtml = isActive ? `
     <button class="btn-action btn-complete">✓ Complete</button>
@@ -468,19 +470,65 @@ function renderCard(task) {
     });
   });
 
-  // ── Tag assignment ────────────────────────────────────────────────────────
-  const tagPickerEl = el.querySelector('.tag-picker');
-  if (tagPickerEl) {
-    tagPickerEl.addEventListener('change', async () => {
-      const tagId = parseInt(tagPickerEl.value, 10);
-      if (!tagId) return;
+  // ── Tag autocomplete ──────────────────────────────────────────────────────
+  const acInput    = el.querySelector('.tag-ac-input');
+  const acDropdown = el.querySelector('.tag-ac-dropdown');
+  if (acInput && acDropdown) {
+    let activeIdx = -1;
+
+    const getMatches = () => {
+      const q = acInput.value.toLowerCase().trim();
+      return q ? availableTags.filter(t => t.name.toLowerCase().includes(q)) : availableTags;
+    };
+
+    const assignTag = async tagId => {
+      acInput.value = '';
+      acDropdown.classList.add('hidden');
       try {
         await api('POST', `/tasks/${task.id}/tags`, { tagId });
         const tag = allTags.find(t => t.id === tagId);
-        const t = allTasks.find(t => t.id === task.id);
+        const t   = allTasks.find(t => t.id === task.id);
         if (tag && t) t.tags = [...(t.tags || []), tag];
         renderTasks();
-      } catch (e) { alert(e.message); tagPickerEl.value = ''; }
+      } catch (e) { alert(e.message); }
+    };
+
+    const renderDropdown = () => {
+      const matches = getMatches();
+      if (matches.length === 0) { acDropdown.classList.add('hidden'); return; }
+      activeIdx = -1;
+      acDropdown.innerHTML = matches.map(t =>
+        `<div class="tag-ac-item" data-tag-id="${t.id}">${esc(t.name)}</div>`
+      ).join('');
+      acDropdown.classList.remove('hidden');
+      acDropdown.querySelectorAll('.tag-ac-item').forEach(item => {
+        item.addEventListener('mousedown', e => {
+          e.preventDefault(); // keep focus on input until we're done
+          assignTag(parseInt(item.dataset.tagId, 10));
+        });
+      });
+    };
+
+    acInput.addEventListener('focus', renderDropdown);
+    acInput.addEventListener('input', renderDropdown);
+    acInput.addEventListener('blur', () => setTimeout(() => acDropdown.classList.add('hidden'), 120));
+    acInput.addEventListener('keydown', e => {
+      const items = [...acDropdown.querySelectorAll('.tag-ac-item')];
+      if (e.key === 'Escape') { acDropdown.classList.add('hidden'); acInput.blur(); }
+      else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIdx = Math.min(activeIdx + 1, items.length - 1);
+        items.forEach((it, i) => it.classList.toggle('active', i === activeIdx));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIdx = Math.max(activeIdx - 1, 0);
+        items.forEach((it, i) => it.classList.toggle('active', i === activeIdx));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (activeIdx >= 0 && items[activeIdx]) {
+          assignTag(parseInt(items[activeIdx].dataset.tagId, 10));
+        }
+      }
     });
   }
 
