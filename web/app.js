@@ -4,8 +4,11 @@
 let token     = localStorage.getItem('synapse_token');
 let userEmail = localStorage.getItem('synapse_email');
 let allTasks  = [];
+let allTags   = [];
 let sortBy       = 'next_reminder';
 let filterStatus = 'active';
+let filterTag    = null; // null = all tags, number = specific tag id
+let selectedTaskIds = new Set();
 let countdownTimer = null;
 let newTaskMDE = null; // EasyMDE instance for the new-task form (lazy-init)
 
@@ -47,16 +50,36 @@ async function register(email, password) {
 }
 
 function logout() {
-  token = null; userEmail = null; allTasks = [];
+  token = null; userEmail = null; allTasks = []; allTags = []; filterTag = null;
+  selectedTaskIds.clear();
   localStorage.removeItem('synapse_token');
   localStorage.removeItem('synapse_email');
   if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
   showLogin();
 }
 
+// ── Tag API ────────────────────────────────────────────────────────────────────
+async function fetchTags() {
+  allTags = await api('GET', '/tags');
+  renderTagSidebar();
+}
+
+async function createTag(name) {
+  const tag = await api('POST', '/tags', { name });
+  allTags.push(tag);
+  allTags.sort((a, b) => a.name.localeCompare(b.name));
+  renderTagSidebar();
+  renderTasks(); // refresh tag pickers on cards
+}
+
 // ── Task API ───────────────────────────────────────────────────────────────────
 async function fetchTasks() {
   allTasks = await api('GET', '/tasks?status=all');
+  // Remove selected IDs that no longer exist in the task list
+  const existingIds = new Set(allTasks.map(t => t.id));
+  for (const id of [...selectedTaskIds]) {
+    if (!existingIds.has(id)) selectedTaskIds.delete(id);
+  }
   renderTasks();
   updateStats();
 }
@@ -80,8 +103,38 @@ async function patchTask(id, body) {
 async function deleteTask(id) {
   await api('DELETE', `/tasks/${id}`);
   allTasks = allTasks.filter(t => t.id !== id);
+  selectedTaskIds.delete(id);
   renderTasks();
   updateStats();
+}
+
+// ── Bulk actions ───────────────────────────────────────────────────────────────
+async function bulkComplete() {
+  const ids = [...selectedTaskIds];
+  await Promise.all(ids.map(id =>
+    api('PATCH', `/tasks/${id}`, { action: 'complete' }).catch(e => console.error(e))
+  ));
+  selectedTaskIds.clear();
+  await fetchTasks();
+}
+
+async function bulkSnooze() {
+  const ids = [...selectedTaskIds];
+  await Promise.all(ids.map(id =>
+    api('PATCH', `/tasks/${id}`, { action: 'snooze', minutes: 60 }).catch(e => console.error(e))
+  ));
+  selectedTaskIds.clear();
+  await fetchTasks();
+}
+
+async function bulkDelete() {
+  const ids = [...selectedTaskIds];
+  if (!confirm(`Delete ${ids.length} task(s)?`)) return;
+  await Promise.all(ids.map(id =>
+    api('DELETE', `/tasks/${id}`).catch(e => console.error(e))
+  ));
+  selectedTaskIds.clear();
+  await fetchTasks();
 }
 
 // ── Countdown ──────────────────────────────────────────────────────────────────
@@ -135,12 +188,60 @@ function getSortedFilteredTasks() {
     if (filterStatus === 'active')    return t.status === 'active';
     if (filterStatus === 'completed') return t.status === 'completed';
     return true;
+  }).filter(t => {
+    if (filterTag === null) return true;
+    return (t.tags || []).some(tag => tag.id === filterTag);
   });
   return filtered.sort((a, b) => {
     if (sortBy === 'priority')    return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
     if (sortBy === 'created_at')  return new Date(a.created_at) - new Date(b.created_at);
-    return new Date(a.next_reminder) - new Date(b.next_reminder); // next_reminder (default)
+    return new Date(a.next_reminder) - new Date(b.next_reminder);
   });
+}
+
+// ── Tag sidebar ────────────────────────────────────────────────────────────────
+function renderTagSidebar() {
+  const container = document.getElementById('tag-filters');
+  if (!container) return;
+
+  const chips = [
+    `<button class="tag-filter-chip ${filterTag === null ? 'active' : ''}" data-tag-id="all">All</button>`,
+    ...allTags.map(t =>
+      `<button class="tag-filter-chip ${filterTag === t.id ? 'active' : ''}" data-tag-id="${t.id}">${esc(t.name)}</button>`
+    ),
+  ].join('');
+
+  container.innerHTML = chips;
+
+  container.querySelectorAll('.tag-filter-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const val = btn.dataset.tagId;
+      filterTag = val === 'all' ? null : parseInt(val, 10);
+      selectedTaskIds.clear();
+      renderTagSidebar();
+      renderTasks();
+    });
+  });
+}
+
+// ── Bulk bar ───────────────────────────────────────────────────────────────────
+function renderBulkBar() {
+  const bar = document.getElementById('bulk-bar');
+  const count = selectedTaskIds.size;
+  if (count === 0) {
+    bar.classList.add('hidden');
+    return;
+  }
+  bar.classList.remove('hidden');
+  document.getElementById('bulk-count').textContent = `${count} selected`;
+}
+
+function updateSelectAll() {
+  const el = document.getElementById('select-all');
+  if (!el) return;
+  const visible = getSortedFilteredTasks();
+  el.checked = visible.length > 0 && visible.every(t => selectedTaskIds.has(t.id));
+  el.indeterminate = !el.checked && visible.some(t => selectedTaskIds.has(t.id));
 }
 
 // ── HTML escape ────────────────────────────────────────────────────────────────
@@ -157,10 +258,23 @@ function renderCard(task) {
   el.dataset.id = task.id;
 
   const isActive = task.status === 'active';
+  const isSelected = selectedTaskIds.has(task.id);
+
   const descHtml = task.description
     ? marked.parse(task.description)
     : `<span class="no-desc">No description — click to add</span>`;
-  const tagsHtml = (task.tags || []).map(t => `<span class="tag-chip">${esc(t.name)}</span>`).join('');
+
+  // Tags: chips with remove button
+  const tagsHtml = (task.tags || []).map(t =>
+    `<span class="tag-chip"><span>${esc(t.name)}</span><button class="tag-remove" data-tag-id="${t.id}" title="Remove tag">×</button></span>`
+  ).join('');
+
+  // Tag picker: tags not already on this task
+  const availableTags = allTags.filter(t => !(task.tags || []).some(tt => tt.id === t.id));
+  const tagPickerHtml = availableTags.length > 0
+    ? `<select class="tag-picker"><option value="">+ Add tag</option>${availableTags.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select>`
+    : '';
+
   const actionsHtml = isActive ? `
     <button class="btn-action btn-complete">✓ Complete</button>
     <button class="btn-action btn-checkin">↻ Check-in</button>
@@ -169,6 +283,7 @@ function renderCard(task) {
 
   el.innerHTML = `
     <div class="card-header">
+      <input type="checkbox" class="task-checkbox" ${isSelected ? 'checked' : ''}>
       <span class="priority-badge pp${task.priority.toLowerCase()}">${task.priority}</span>
       <span class="task-title">${esc(task.title)}</span>
       <span class="${countdownClass(task.next_reminder)}" data-countdown="${task.next_reminder}">
@@ -187,9 +302,13 @@ function renderCard(task) {
       </div>
     </div>
     <div class="card-footer">
-      <div class="card-tags">${tagsHtml}</div>
+      <div class="card-tags">
+        ${tagsHtml}
+        ${tagPickerHtml}
+      </div>
       <div class="card-actions">
         ${actionsHtml}
+        <button class="btn-action btn-history">⟳ History</button>
         <button class="btn-action btn-delete">✕ Delete</button>
       </div>
     </div>
@@ -197,7 +316,16 @@ function renderCard(task) {
       <textarea class="checkin-note" placeholder="Status update…" rows="2"></textarea>
       <button class="btn-primary btn-submit-checkin">Submit check-in</button>
     </div>
+    <div class="checkin-history hidden"></div>
   `;
+
+  // ── Checkbox ──────────────────────────────────────────────────────────────
+  el.querySelector('.task-checkbox').addEventListener('change', e => {
+    if (e.target.checked) selectedTaskIds.add(task.id);
+    else selectedTaskIds.delete(task.id);
+    renderBulkBar();
+    updateSelectAll();
+  });
 
   // ── Inline editing: title ─────────────────────────────────────────────────
   if (isActive) {
@@ -284,8 +412,8 @@ function renderCard(task) {
   });
 
   // ── Check-in ──────────────────────────────────────────────────────────────
-  const checkinArea  = el.querySelector('.checkin-area');
-  const checkinNote  = el.querySelector('.checkin-note');
+  const checkinArea = el.querySelector('.checkin-area');
+  const checkinNote = el.querySelector('.checkin-note');
   el.querySelector('.btn-checkin')?.addEventListener('click', () => {
     checkinArea.classList.toggle('hidden');
     if (!checkinArea.classList.contains('hidden')) checkinNote.focus();
@@ -294,6 +422,67 @@ function renderCard(task) {
     const note = checkinNote.value.trim();
     await patchTask(task.id, { action: 'checkin', note }).catch(e => alert(e.message));
   });
+
+  // ── Check-in history ──────────────────────────────────────────────────────
+  const historySection = el.querySelector('.checkin-history');
+  let historyLoaded = false;
+
+  el.querySelector('.btn-history').addEventListener('click', async () => {
+    if (!historySection.classList.contains('hidden')) {
+      historySection.classList.add('hidden');
+      return;
+    }
+    historySection.classList.remove('hidden');
+    if (historyLoaded) return;
+
+    historySection.innerHTML = '<span class="loading-small">Loading…</span>';
+    try {
+      const checkins = await api('GET', `/tasks/${task.id}/checkins`);
+      historyLoaded = true;
+      if (checkins.length === 0) {
+        historySection.innerHTML = '<span class="no-history">No check-in history yet.</span>';
+      } else {
+        historySection.innerHTML = checkins.map(c => `
+          <div class="history-item">
+            <span class="history-time">${new Date(c.created_at).toLocaleString()}</span>
+            <span class="history-note">${c.note ? esc(c.note) : '<em>No note</em>'}</span>
+          </div>
+        `).join('');
+      }
+    } catch (e) {
+      historySection.innerHTML = `<span class="error-msg">Failed to load history</span>`;
+    }
+  });
+
+  // ── Tag removal ───────────────────────────────────────────────────────────
+  el.querySelectorAll('.tag-remove').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const tagId = parseInt(btn.dataset.tagId, 10);
+      try {
+        await api('DELETE', `/tasks/${task.id}/tags/${tagId}`);
+        const t = allTasks.find(t => t.id === task.id);
+        if (t) t.tags = (t.tags || []).filter(tt => tt.id !== tagId);
+        renderTasks();
+      } catch (e) { alert(e.message); }
+    });
+  });
+
+  // ── Tag assignment ────────────────────────────────────────────────────────
+  const tagPickerEl = el.querySelector('.tag-picker');
+  if (tagPickerEl) {
+    tagPickerEl.addEventListener('change', async () => {
+      const tagId = parseInt(tagPickerEl.value, 10);
+      if (!tagId) return;
+      try {
+        await api('POST', `/tasks/${task.id}/tags`, { tagId });
+        const tag = allTags.find(t => t.id === tagId);
+        const t = allTasks.find(t => t.id === task.id);
+        if (tag && t) t.tags = [...(t.tags || []), tag];
+        renderTasks();
+      } catch (e) { alert(e.message); tagPickerEl.value = ''; }
+    });
+  }
 
   return el;
 }
@@ -305,11 +494,13 @@ function renderTasks() {
   const tasks = getSortedFilteredTasks();
   if (tasks.length === 0) {
     container.innerHTML = '<div class="empty-state">No tasks here. Create one with "+ New Task".</div>';
-    return;
+  } else {
+    const frag = document.createDocumentFragment();
+    tasks.forEach(t => frag.appendChild(renderCard(t)));
+    container.appendChild(frag);
   }
-  const frag = document.createDocumentFragment();
-  tasks.forEach(t => frag.appendChild(renderCard(t)));
-  container.appendChild(frag);
+  renderBulkBar();
+  updateSelectAll();
 }
 
 // ── Views ──────────────────────────────────────────────────────────────────────
@@ -322,6 +513,7 @@ function showApp() {
   document.getElementById('view-login').classList.add('hidden');
   document.getElementById('view-app').classList.remove('hidden');
   document.getElementById('user-email').textContent = userEmail || '';
+  fetchTags();
   fetchTasks();
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(updateCountdowns, 30_000);
@@ -411,11 +603,45 @@ function init() {
   // Sort / filter
   document.getElementById('filter-status').addEventListener('change', e => {
     filterStatus = e.target.value;
+    selectedTaskIds.clear();
     renderTasks();
   });
   document.getElementById('sort-by').addEventListener('change', e => {
     sortBy = e.target.value;
     renderTasks();
+  });
+
+  // Select all
+  document.getElementById('select-all').addEventListener('change', e => {
+    const visible = getSortedFilteredTasks();
+    if (e.target.checked) visible.forEach(t => selectedTaskIds.add(t.id));
+    else selectedTaskIds.clear();
+    renderTasks();
+  });
+
+  // Bulk actions
+  document.getElementById('btn-bulk-complete').addEventListener('click', bulkComplete);
+  document.getElementById('btn-bulk-snooze').addEventListener('click', bulkSnooze);
+  document.getElementById('btn-bulk-delete').addEventListener('click', bulkDelete);
+  document.getElementById('btn-bulk-clear').addEventListener('click', () => {
+    selectedTaskIds.clear();
+    renderTasks();
+  });
+
+  // Create tag
+  document.getElementById('btn-create-tag').addEventListener('click', async () => {
+    const input = document.getElementById('new-tag-name');
+    const name = input.value.trim();
+    const errEl = document.getElementById('create-tag-error');
+    errEl.textContent = '';
+    if (!name) return;
+    try {
+      await createTag(name);
+      input.value = '';
+    } catch (err) { errEl.textContent = err.message; }
+  });
+  document.getElementById('new-tag-name').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btn-create-tag').click();
   });
 
   // Boot
