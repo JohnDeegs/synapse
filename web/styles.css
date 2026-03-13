@@ -589,6 +589,240 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
   margin-top: 6px;
 }
 
+/* ── Two-column layout ────────────────────────────────────────────────────── */
+
+.app-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.sidebar {
+  width: 176px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 12px;
+  position: sticky;
+  top: 68px; /* header height + gap */
+}
+
+.main-content { flex: 1; min-width: 0; }
+
+.sidebar-section { margin-bottom: 20px; }
+.sidebar-section:last-child { margin-bottom: 0; }
+
+.sidebar-heading {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+/* ── Tag filter chips (sidebar) ───────────────────────────────────────────── */
+
+#tag-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tag-filter-chip {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: background .1s;
+}
+
+.tag-filter-chip:hover {
+  background: var(--card-hover);
+  color: var(--text-primary);
+}
+
+.tag-filter-chip.active {
+  background: #e8f0fe;
+  color: var(--accent);
+  border-color: var(--accent);
+  font-weight: 500;
+}
+
+@media (prefers-color-scheme: dark) {
+  .tag-filter-chip.active { background: #174ea6; color: #aecbfa; }
+}
+
+/* ── Create tag form (sidebar) ────────────────────────────────────────────── */
+
+.create-tag-form {
+  display: flex;
+  gap: 4px;
+}
+
+.create-tag-form input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text-primary);
+}
+
+.create-tag-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(26,115,232,.2);
+}
+
+.create-tag-form .btn-primary {
+  padding: 4px 10px;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+/* ── Select-all checkbox ──────────────────────────────────────────────────── */
+
+.select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+#select-all {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ── Bulk action bar ──────────────────────────────────────────────────────── */
+
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #e8f0fe;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+@media (prefers-color-scheme: dark) {
+  .bulk-bar { background: #1a2f5e; }
+}
+
+#bulk-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  margin-right: 4px;
+}
+
+.btn-danger-action:hover { border-color: var(--danger); color: var(--danger); }
+
+/* ── Task checkbox ────────────────────────────────────────────────────────── */
+
+.task-checkbox {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ── Tag chips (card) — updated with remove button ───────────────────────── */
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  background: #e8f0fe;
+  color: var(--accent);
+  padding: 2px 6px 2px 8px;
+  border-radius: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .tag-chip { background: #174ea6; color: #aecbfa; }
+}
+
+.tag-remove {
+  background: none;
+  border: none;
+  color: inherit;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: .6;
+}
+
+.tag-remove:hover { opacity: 1; }
+
+/* ── Tag picker (card) ────────────────────────────────────────────────────── */
+
+.tag-picker {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  max-width: 110px;
+}
+
+/* ── Check-in history ─────────────────────────────────────────────────────── */
+
+.checkin-history {
+  margin: 6px 0 4px 26px;
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+}
+
+.history-item {
+  margin-bottom: 8px;
+}
+
+.history-item:last-child { margin-bottom: 0; }
+
+.history-time {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
+.history-note {
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.history-note em { color: var(--text-secondary); font-style: italic; }
+
+.no-history, .loading-small {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 /* ── Misc ─────────────────────────────────────────────────────────────────── */
 
 .loading, .empty-state {
