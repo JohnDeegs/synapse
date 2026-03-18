@@ -7,8 +7,9 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "better-sqlite3": "^9.4.3",
+    "@google/generative-ai": "^0.24.1",
     "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^9.4.3",
     "dotenv": "^16.4.5",
     "jsonwebtoken": "^9.0.2"
   }
