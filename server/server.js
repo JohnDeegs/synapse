@@ -296,6 +296,16 @@ async function handleTelegramConnect(req, res) {
   send(res, 200, { userId: codeRow.user_id });
 }
 
+async function handleGetTelegramConnect(req, res, user) {
+  const link = stmts.getTelegramLinkByUserId.get(user.userId);
+  send(res, 200, { connected: !!link });
+}
+
+async function handleDeleteTelegramConnect(req, res, user) {
+  stmts.deleteTelegramLinkByUserId.run(user.userId);
+  send(res, 200, { ok: true });
+}
+
 async function handleTelegramWebhook(req, res) {
   const secretHeader = req.headers['x-telegram-bot-api-secret-token'];
   if (!telegram.WEBHOOK_SECRET || secretHeader !== telegram.WEBHOOK_SECRET) {
@@ -336,7 +346,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET'  && url === '/auth/telegram-code') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetTelegramCode(req, res, u); }
 
     // Telegram connect — internal (no JWT, validated by one-time code)
-    if (req.method === 'POST' && url === '/telegram/connect') return await handleTelegramConnect(req, res);
+    if (req.method === 'POST'   && url === '/telegram/connect') return await handleTelegramConnect(req, res);
+    // Telegram connect status / disconnect — JWT-authenticated
+    if (req.method === 'GET'    && url === '/telegram/connect') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetTelegramConnect(req, res, u); }
+    if (req.method === 'DELETE' && url === '/telegram/connect') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleDeleteTelegramConnect(req, res, u); }
 
     // Telegram webhook — called by Telegram servers
     if (req.method === 'POST' && url === '/telegram/webhook') return await handleTelegramWebhook(req, res);
