@@ -49,6 +49,32 @@ db.exec(`
     tag_id  INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
     UNIQUE(task_id, tag_id)
   );
+
+  CREATE TABLE IF NOT EXISTS telegram_links (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    chat_id    TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS telegram_codes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code       TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS telegram_rate_limits (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id      TEXT NOT NULL UNIQUE,
+    minute_count INTEGER NOT NULL DEFAULT 0,
+    hour_count   INTEGER NOT NULL DEFAULT 0,
+    day_count    INTEGER NOT NULL DEFAULT 0,
+    minute_reset TEXT NOT NULL,
+    hour_reset   TEXT NOT NULL,
+    day_reset    TEXT NOT NULL
+  );
 `);
 
 // Prepared statements
@@ -119,6 +145,48 @@ const stmts = {
   ),
   getTagsByUserForTasks: db.prepare(
     'SELECT tt.task_id, t.id, t.name FROM task_tags tt JOIN tags t ON t.id = tt.tag_id JOIN tasks tk ON tk.id = tt.task_id WHERE tk.user_id = ?'
+  ),
+
+  // Telegram codes
+  createTelegramCode: db.prepare(
+    'INSERT INTO telegram_codes (user_id, code, expires_at) VALUES (?, ?, ?) RETURNING id, code, expires_at'
+  ),
+  deleteCodesForUser: db.prepare(
+    'DELETE FROM telegram_codes WHERE user_id = ?'
+  ),
+  getActiveTelegramCodeForUser: db.prepare(
+    "SELECT id, code, expires_at FROM telegram_codes WHERE user_id = ? AND expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1"
+  ),
+  getTelegramCodeByCode: db.prepare(
+    "SELECT id, user_id, code, expires_at FROM telegram_codes WHERE code = ? AND expires_at > datetime('now')"
+  ),
+  deleteTelegramCodeById: db.prepare(
+    'DELETE FROM telegram_codes WHERE id = ?'
+  ),
+
+  // Telegram links
+  createTelegramLink: db.prepare(
+    'INSERT INTO telegram_links (user_id, chat_id) VALUES (?, ?)'
+  ),
+  getTelegramLinkByChatId: db.prepare(
+    'SELECT * FROM telegram_links WHERE chat_id = ?'
+  ),
+  getTelegramLinkByUserId: db.prepare(
+    'SELECT * FROM telegram_links WHERE user_id = ?'
+  ),
+  deleteTelegramLinkByUserId: db.prepare(
+    'DELETE FROM telegram_links WHERE user_id = ?'
+  ),
+
+  // Telegram rate limits
+  getRateLimit: db.prepare(
+    'SELECT * FROM telegram_rate_limits WHERE chat_id = ?'
+  ),
+  insertRateLimit: db.prepare(
+    'INSERT INTO telegram_rate_limits (chat_id, minute_count, hour_count, day_count, minute_reset, hour_reset, day_reset) VALUES (?, 1, 1, 1, ?, ?, ?)'
+  ),
+  updateRateLimit: db.prepare(
+    'UPDATE telegram_rate_limits SET minute_count = ?, hour_count = ?, day_count = ?, minute_reset = ?, hour_reset = ?, day_reset = ? WHERE chat_id = ?'
   ),
 };
 
