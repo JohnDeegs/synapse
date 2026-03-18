@@ -25,7 +25,8 @@ db.exec(`
     status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','completed','snoozed')),
     checkin_count INTEGER NOT NULL DEFAULT 0,
     next_reminder TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    embedding TEXT
   );
 
   CREATE TABLE IF NOT EXISTS checkin_log (
@@ -76,6 +77,13 @@ db.exec(`
     day_reset    TEXT NOT NULL
   );
 `);
+
+// Add embedding column to existing databases (idempotent)
+try {
+  db.exec('ALTER TABLE tasks ADD COLUMN embedding TEXT');
+} catch (e) {
+  if (!e.message.includes('duplicate column name')) throw e;
+}
 
 // Prepared statements
 const stmts = {
@@ -176,6 +184,14 @@ const stmts = {
   ),
   deleteTelegramLinkByUserId: db.prepare(
     'DELETE FROM telegram_links WHERE user_id = ?'
+  ),
+
+  // Embeddings
+  updateTaskEmbedding: db.prepare(
+    'UPDATE tasks SET embedding = ? WHERE id = ?'
+  ),
+  getTasksWithoutEmbedding: db.prepare(
+    'SELECT id, title, description FROM tasks WHERE embedding IS NULL'
   ),
 
   // Telegram rate limits
