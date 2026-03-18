@@ -4,7 +4,7 @@ const https = require('https');
 const { stmts } = require('./db');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const EMBEDDING_MODEL = 'text-embedding-004';
+const EMBEDDING_MODEL = 'gemini-embedding-001';
 
 // ── Gemini Embeddings API ─────────────────────────────────────────────────────
 
