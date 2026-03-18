@@ -10,6 +10,7 @@ const {
   checkinTask, completeTask, snoozeTask, deleteTask, updateTaskContent,
 } = require('./tasks');
 const telegram = require('./telegram');
+const { updateTaskEmbedding, backfillEmbeddings } = require('./embeddings');
 
 const PORT = process.env.PORT || 3000;
 
@@ -119,6 +120,7 @@ async function handleCreateTask(req, res, user) {
   if (!['P0','P1','P2','P3','P4'].includes(priority)) return send(res, 400, { error: 'priority must be P0–P4' });
 
   const task = createTask({ userId: user.userId, title, priority, description });
+  updateTaskEmbedding(task).catch(() => {}); // fire-and-forget
   send(res, 201, task);
 }
 
@@ -135,6 +137,7 @@ async function handlePatchTask(req, res, user, id) {
   if (action === 'update') {
     if (body.title === undefined && body.description === undefined) return send(res, 400, { error: 'title or description required' });
     const updated = updateTaskContent(task, { title: body.title, description: body.description });
+    updateTaskEmbedding(updated).catch(() => {}); // fire-and-forget
     return send(res, 200, updated);
   }
   if (action === 'checkin') {
@@ -376,4 +379,6 @@ server.listen(PORT, () => {
     telegram.registerWebhook(process.env.APP_BASE_URL)
       .catch(err => console.error('Failed to register Telegram webhook:', err));
   }
+  backfillEmbeddings()
+    .catch(err => console.error('Embedding backfill error:', err));
 });
