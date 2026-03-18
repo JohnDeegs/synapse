@@ -347,6 +347,48 @@ A `Dockerfile` bypasses all auto-detection and works — but it means you own th
 
 ---
 
+## Phase 10: Telegram Auth & Rate Limiting
+
+### What Was Built
+
+1. **Three new tables** — `telegram_links` (chat_id ↔ user_id), `telegram_codes` (one-time codes with expiry), `telegram_rate_limits` (per-chat_id sliding window counters)
+2. **`POST /auth/telegram-code`** — generates a 6-char alphanumeric code, deletes any prior code for the user, stores with `expires_at = now + 5 minutes`
+3. **`GET /auth/telegram-code`** — returns the active unexpired code without regenerating; returns `{ code: null }` if none exists
+4. **`POST /telegram/connect`** — internal endpoint; verifies code is valid and unexpired, links `chat_id → user_id`, deletes the code (one-time use enforced)
+5. **`server/telegram-rate-limit.js`** — `checkRateLimit(chatId)` with 10/min, 50/hr, 200/day limits; resets counters automatically when their window expires
+
+---
+
+### What Worked Well
+
+- **Deleting existing codes before generating a new one is cleaner than checking for duplicates.** `deleteCodesForUser` + `createTelegramCode` is two statements and leaves no stale rows. Alternatives (upsert, unique index with conflict handling) add complexity for no benefit — the user only ever needs one active code.
+- **`expires_at > datetime('now')` in SQLite just works for ISO strings.** The same ISO string lexicographic ordering property that makes `ORDER BY next_reminder` correct (documented in Phase 7 notes) also makes datetime comparisons in `WHERE` clauses correct. No type conversion needed.
+- **Testing the rate limiter directly via the module, not via HTTP, was the right call.** The rate limiter isn't exposed as its own HTTP endpoint — it will be called from the bot handler in Phase 11. Testing it by `require('./telegram-rate-limit')` and calling `checkRateLimit()` in a loop is faster, cleaner, and doesn't require a running server.
+- **Window-boundary calculation with `Math.ceil(now / windowMs) * windowMs` is clean and correct.** It gives the end of the current window (not the start of the next), which is the right value to store as `minute_reset` / `hour_reset` / `day_reset`. No special-casing needed for the first call in a window.
+- **The `RETURNING` prepared statement + `.get()` pattern (established in Phase 7) applied cleanly to `createTelegramCode`.** No boilerplate needed to get the generated `id` and `expires_at` back from the insert.
+
+---
+
+### What Didn't Go Well
+
+- **Port 3000 was held by a previous server process.** When restarting after code changes, the old process was still running. `pkill -f "node server.js"` does not work on Windows — the process was still alive. The fix is `netstat -ano | grep ":3000"` to find the PID, then `taskkill //F //PID <pid>`. On Windows, always kill by PID. Add this to your muscle memory.
+
+---
+
+### What I Wish I Knew Before Starting
+
+1. **`pkill` doesn't work on Windows — use `taskkill //F //PID <pid>`.** When the server is already running and you need to restart after code changes, `pkill -f "node server.js"` exits silently with no effect. Find the PID with `netstat -ano | grep ":3000"` and kill it explicitly. The `//F` flag forces termination without a confirmation prompt.
+
+2. **`b % charsetLength` for code generation has a tiny statistical bias — it's fine here.** `crypto.randomBytes(6)` gives values 0–255. `255 % 36 = 3`, so characters A–C appear very slightly more often than the rest. For a 5-minute one-time code, this is irrelevant. Don't reach for a rejection-sampling loop unless you're generating cryptographic keys.
+
+3. **The rate limit `retryAfter` value should be calculated from the stored reset timestamp, not from `Date.now() + windowMs`.** If a user hits the limit at 0:59 into a minute, you want to tell them "1 second" not "60 seconds". Always compute `retryMs = resetTimestamp - Date.now()` on the blocked response.
+
+4. **Store the rate limit reset timestamps as ISO strings, not Unix timestamps.** The rest of the schema uses ISO strings throughout (`next_reminder`, `expires_at`, `created_at`). Mixing in Unix integers would create an inconsistency that will trip up future builders reading the DB. ISO strings are also directly comparable with `datetime('now')` in SQLite.
+
+5. **`POST /telegram/connect` is intentionally unauthenticated — document this clearly.** The security comes from the one-time code, not a JWT. If a future builder sees an unauthenticated POST endpoint and tries to "fix" it by adding JWT auth, they'll break the bot flow (the bot has no user JWT — it only has the chat_id and the code the user typed). The endpoint is safe by design.
+
+---
+
 ## Phase Completion Status
 
 | Phase | Description | Status |
@@ -360,3 +402,4 @@ A `Dockerfile` bypasses all auto-detection and works — but it means you own th
 | 7 | Backend: Tags & Web Static Serving | Done |
 | 8 | Web Dashboard: Core UI | Done |
 | 9 | Web Dashboard: Tags, Check-in History & Bulk Actions | Done |
+| 10 | Backend: Telegram Auth & Rate Limiting | Done |
