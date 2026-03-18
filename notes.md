@@ -289,6 +289,39 @@ All Phase 9 features were implemented across 5 commits on `phase/9-web-advanced`
 
 ---
 
+## Phase 9 Retrospective: Tags, Check-in History & Bulk Actions
+
+### What Worked Well
+
+- **`position: fixed` + `getBoundingClientRect()` is the right pattern for any dropdown inside a scrolling container.** `position: absolute` will always get clipped if any ancestor has `overflow: hidden` or is a scroll container. Fixed positioning escapes all of that. Set `top` and `left` from `getBoundingClientRect()` on focus/input, not once at render time.
+- **`mousedown` instead of `click` on dropdown items is essential.** The input's `blur` event fires before `click` registers, which closes the dropdown before the selection lands. `mousedown` fires first, and `e.preventDefault()` in the handler keeps focus on the input long enough for the selection to complete.
+- **Sequencing `fetchTags()` before `fetchTasks()` is the right call.** The tag autocomplete on each card is built from `allTags` at render time. If tasks load first (parallel fetch), `allTags` is empty and no pickers appear. Chaining `fetchTags().then(() => fetchTasks())` guarantees tags are ready. This is a one-time cost at login; it doesn't affect any subsequent interactions.
+- **Client-side compound filtering scales cleanly.** Tag filter, status filter, and sort all operate on the same cached `allTasks` array in a single pass. Adding a third dimension of filtering required zero backend changes and no additional fetch.
+- **Autocomplete typeahead over `<select>` was the right call at 3 tags — not just at 50.** Even with a small tag list, the typeahead is faster and doesn't interrupt keyboard flow. This decision pays off immediately and scales indefinitely.
+
+---
+
+### What Didn't Go Well
+
+- **The dropdown clipping bug wasn't caught before testing.** `position: absolute` inside a scrolling list container is a well-known trap. It should have been caught in code review or by testing with a task at the bottom of the list. The fix was trivial once identified, but it required a real test run to surface.
+- **Step 8 (compound filter + sort) was hard to verify visually.** When test data is small and tasks share similar priorities and reminder times, sort order changes are imperceptible. For future phases with sort/filter logic, create test data that makes the sort order unambiguous (e.g. tasks with wildly different priorities AND different reminder offsets).
+
+---
+
+### What I Wish I Knew Before Starting
+
+1. **Any dropdown inside a scrollable list must use `position: fixed`.** There is no reliable way to make `position: absolute` work across all scroll/overflow contexts. Just start with fixed + `getBoundingClientRect()` and avoid the whole class of bugs.
+
+2. **Use `mousedown` + `e.preventDefault()` for any click target that closes a focused element.** This is the standard pattern for custom dropdowns, autocompletes, and colour pickers. `click` is always too late when a `blur` listener is in play.
+
+3. **Design test data to make the feature under test unambiguous.** Sort order is invisible when all tasks have similar next_reminder values. Create tasks with explicitly different priorities AND snooze them to different times so sort order is obvious when switching between sort modes.
+
+4. **The tag picker hiding when all tags are assigned is a UX choice that needs communicating.** If every tag is already on a task, the "Add tag" input disappears entirely. That's clean — but users who don't know all tags are assigned might think it's a bug. A subtle "all tags assigned" note could help, though for now the behaviour is correct.
+
+5. **Parallel fetch is almost always fine — except when one fetch's result is an input to another's rendering.** The tags → tasks sequencing is a case where the output of `fetchTags` (populating `allTags`) is a dependency for rendering the output of `fetchTasks`. Any time fetch A populates state that fetch B's renderer reads, sequence them. Otherwise parallel is fine.
+
+---
+
 ## Phase Completion Status
 
 | Phase | Description | Status |
