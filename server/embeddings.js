@@ -75,17 +75,27 @@ function cosineSimilarity(a, b) {
  * Tasks without an embedding are excluded from ranking.
  */
 async function findRelevantTasks(userMessage, allTasks, topN = 12) {
+  const withEmbedding    = allTasks.filter(t =>  t.embedding);
+  const withoutEmbedding = allTasks.filter(t => !t.embedding);
+
+  // If nothing has embeddings yet, fall back to the most recent tasks
+  if (withEmbedding.length === 0) return allTasks.slice(0, topN);
+
   const queryEmbedding = await getEmbedding(userMessage);
 
-  return allTasks
-    .filter(t => t.embedding)
-    .map(t => {
-      const vec = JSON.parse(t.embedding);
-      return { task: t, score: cosineSimilarity(queryEmbedding, vec) };
-    })
+  const scored = withEmbedding
+    .map(t => ({ task: t, score: cosineSimilarity(queryEmbedding, JSON.parse(t.embedding)) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, topN)
     .map(s => s.task);
+
+  // Append un-embedded tasks (e.g. just created) in remaining slots so they're always visible
+  const slots = topN - scored.length;
+  if (slots > 0 && withoutEmbedding.length > 0) {
+    scored.push(...withoutEmbedding.slice(0, slots));
+  }
+
+  return scored;
 }
 
 /**

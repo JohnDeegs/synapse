@@ -5,6 +5,7 @@ const { stmts } = require('./db');
 const {
   createTask, getTaskById, checkinTask, completeTask, snoozeTask, getActiveTasks,
 } = require('./tasks');
+const { updateTaskEmbedding } = require('./embeddings');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const CHAT_MODEL     = 'gemini-2.5-flash';
@@ -219,6 +220,7 @@ function executeCreateTask(args, userId) {
     priority:    args.priority,
     description: args.description || '',
   });
+  updateTaskEmbedding(task).catch(() => {}); // fire-and-forget so RAG finds it next time
   const next = formatRelativeTime(task.next_reminder);
   return `Created task: "${task.title}" (${task.priority}). Next reminder ${next}.`;
 }
