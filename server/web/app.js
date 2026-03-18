@@ -55,6 +55,7 @@ function logout() {
   localStorage.removeItem('synapse_token');
   localStorage.removeItem('synapse_email');
   if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  if (telegramCountdownTimer) { clearInterval(telegramCountdownTimer); telegramCountdownTimer = null; }
   showLogin();
 }
 
@@ -70,6 +71,74 @@ async function createTag(name) {
   allTags.sort((a, b) => a.name.localeCompare(b.name));
   renderTagSidebar();
   renderTasks(); // refresh tag pickers on cards
+}
+
+// ── Telegram Settings ──────────────────────────────────────────────────────────
+let telegramCountdownTimer = null;
+
+async function fetchTelegramStatus() {
+  try {
+    const { connected } = await api('GET', '/telegram/connect');
+    renderTelegramSettings(connected);
+  } catch (e) {
+    console.error('Failed to fetch Telegram status', e);
+  }
+}
+
+function renderTelegramSettings(connected, codeData) {
+  const el = document.getElementById('telegram-settings');
+  if (!el) return;
+
+  if (telegramCountdownTimer) { clearInterval(telegramCountdownTimer); telegramCountdownTimer = null; }
+
+  if (connected) {
+    el.innerHTML = `
+      <p class="tg-status tg-connected">Telegram connected ✓</p>
+      <button id="btn-tg-disconnect" class="btn-text btn-danger-text">Disconnect</button>
+    `;
+    el.querySelector('#btn-tg-disconnect').addEventListener('click', async () => {
+      try {
+        await api('DELETE', '/telegram/connect');
+        renderTelegramSettings(false);
+      } catch (e) { alert('Failed to disconnect: ' + e.message); }
+    });
+    return;
+  }
+
+  if (codeData && codeData.code) {
+    const expiresAt = new Date(codeData.expiresAt).getTime();
+    const renderCountdown = () => {
+      const secs = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
+      const m = Math.floor(secs / 60);
+      const s = String(secs % 60).padStart(2, '0');
+      const cdEl = document.getElementById('tg-code-countdown');
+      if (cdEl) cdEl.textContent = `${m}:${s}`;
+      if (secs === 0) {
+        if (telegramCountdownTimer) { clearInterval(telegramCountdownTimer); telegramCountdownTimer = null; }
+        renderTelegramSettings(false);
+      }
+    };
+    el.innerHTML = `
+      <p class="tg-instructions">Send to your bot:</p>
+      <p class="tg-code"><code>/connect ${esc(codeData.code)}</code></p>
+      <p class="tg-code-expiry">Expires in <span id="tg-code-countdown"></span></p>
+      <button id="btn-tg-new-code" class="btn-text">Generate new code</button>
+    `;
+    renderCountdown();
+    telegramCountdownTimer = setInterval(renderCountdown, 1000);
+    el.querySelector('#btn-tg-new-code').addEventListener('click', generateTelegramCode);
+    return;
+  }
+
+  el.innerHTML = `<button id="btn-tg-connect" class="btn-primary">Connect Telegram</button>`;
+  el.querySelector('#btn-tg-connect').addEventListener('click', generateTelegramCode);
+}
+
+async function generateTelegramCode() {
+  try {
+    const data = await api('POST', '/auth/telegram-code');
+    renderTelegramSettings(false, data);
+  } catch (e) { alert('Failed to generate code: ' + e.message); }
 }
 
 // ── Task API ───────────────────────────────────────────────────────────────────
@@ -566,6 +635,7 @@ function showApp() {
   document.getElementById('user-email').textContent = userEmail || '';
   // Load tags first so tag pickers are populated when task cards render
   fetchTags().then(() => fetchTasks()).catch(e => console.error(e));
+  fetchTelegramStatus();
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(updateCountdowns, 30_000);
 }

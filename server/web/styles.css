@@ -866,6 +866,17 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
   font-style: italic;
 }
 
+/* ── Telegram Settings ───────────────────────────────────────────────────── */
+
+.tg-status { font-size: 13px; margin: 0 0 6px; }
+.tg-connected { color: var(--success); font-weight: 500; }
+.tg-instructions { font-size: 12px; color: var(--text-secondary); margin: 0 0 4px; }
+.tg-code { margin: 6px 0; }
+.tg-code code { font-size: 13px; background: var(--surface); padding: 3px 6px; border-radius: var(--radius); border: 1px solid var(--border); user-select: all; }
+.tg-code-expiry { font-size: 11px; color: var(--text-secondary); margin: 4px 0 8px; }
+.btn-danger-text { color: var(--danger); }
+.btn-danger-text:hover { text-decoration: underline; }
+
 /* ── Misc ─────────────────────────────────────────────────────────────────── */
 
 .loading, .empty-state {
