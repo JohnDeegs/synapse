@@ -389,6 +389,54 @@ A `Dockerfile` bypasses all auto-detection and works — but it means you own th
 
 ---
 
+## Phase 11: Telegram Bot — Webhook & Basic Commands
+
+### What Was Built
+
+1. **`server/telegram.js`** — bot handler module: `registerWebhook(baseUrl)`, `sendMessage(chatId, text)`, `handleUpdate(update)`
+2. **`POST /telegram/webhook`** — validates `X-Telegram-Bot-Api-Secret-Token` header, responds 200 immediately, processes the update asynchronously
+3. **`/start` command** — welcome message with connect instructions
+4. **`/connect <code>` command** — verifies code, links `chat_id → user_id`, one-time use enforced; clear error on invalid/expired code
+5. **Unlinked account handler** — any message from an unlinked `chat_id` gets connect instructions
+6. **Phase 12 placeholder** — linked accounts get "LLM not yet connected" reply
+7. **Startup webhook registration** — if `TELEGRAM_BOT_TOKEN` and `APP_BASE_URL` are set, `registerWebhook` is called automatically on `server.listen`
+8. **`.env.example`** updated with `TELEGRAM_BOT_TOKEN` and `APP_BASE_URL`
+
+---
+
+### What Worked Well
+
+- **Deriving `WEBHOOK_SECRET` from `BOT_TOKEN` via SHA-256 is clean.** No extra env var needed — the secret is deterministic across restarts and rotates automatically if the bot token changes. `crypto.createHash('sha256').update(BOT_TOKEN).digest('hex').slice(0, 32)` is the pattern.
+- **Respond 200 immediately, process asynchronously.** Telegram requires a fast response or it retries the update. Calling `send(res, 200, { ok: true })` before `handleUpdate` and catching errors separately is the correct pattern. Don't await the handler before responding.
+- **`handleUpdate` calling `stmts` directly is consistent with the rest of the codebase.** No need for a separate internal HTTP call to `/telegram/connect` — `telegram.js` imports `stmts` from `db.js` and runs the same connect logic inline. Keeps it fast and avoids a network round-trip to itself.
+- **All bot commands worked first time with no code changes after deployment.** The logic was straightforward to get right before testing.
+- **Railway was the right choice for testing over ngrok.** The server was already deployed and the code was merge-ready. ngrok adds unnecessary friction when a production environment already exists.
+
+---
+
+### What Didn't Go Well
+
+- **ngrok was suggested first instead of Railway.** Since Railway was already set up and the Phase 11 code was complete, the right call was to merge and deploy immediately. ngrok is only useful when you're mid-development and need fast local iteration. For a finished phase, always deploy to Railway and test there.
+- **The `web/` folder is not deployed to Railway.** Railway's service root is `server/` — it only deploys that directory. The `web/` folder at the project root is invisible to Railway. This wasn't obvious until testing required a token and the web dashboard returned "Not found" on production. The web dashboard has only ever been tested locally. This will be fixed in Phase 13.
+- **Token debugging loop wasted time.** Several 401 errors in a row were caused by the user testing the web app locally (localhost:3000) and then trying to use those credentials against production. The local and production databases are separate — an account registered locally doesn't exist on Railway.
+- **The `!` character in Git Bash triggers history expansion.** A `node -e` one-liner containing `!login.body.token` caused a bash error. Avoid `!` in inline Node.js scripts run from bash, or use PowerShell instead.
+
+---
+
+### What I Wish I Knew Before Starting
+
+1. **Railway only deploys the `server/` directory — `web/` is not included.** The Railway service root is `server/`. Anything outside that directory (including `web/`) is never uploaded. Don't plan any testing that relies on the web dashboard being available on production until Phase 13 deploys it properly.
+
+2. **When testing against production, always register/login against production directly — never assume local credentials exist there.** The local and production SQLite databases are completely separate. Use `POST /auth/register` against the production hostname to create a test account before any authenticated testing.
+
+3. **Use Railway over ngrok whenever the code is ready to merge.** ngrok is for mid-development local testing. If the phase is complete and you're just running the test checklist, merge to main, push, and test against Railway. It's faster, requires no extra tools, and validates the real deployment environment.
+
+4. **Avoid `!` in `node -e` scripts run from Git Bash.** Bash interprets `!` as a history expansion character inside double-quoted strings. Either wrap the script in single quotes, escape the `!`, or run from PowerShell where this isn't an issue.
+
+5. **The respond-first pattern is mandatory for Telegram webhooks, not optional.** If your handler takes more than a few seconds (e.g. LLM call in Phase 12), Telegram will retry the update thinking the delivery failed. Always `send(res, 200)` before any async processing, and handle errors from the async work separately so they don't surface as unhandled rejections.
+
+---
+
 ## Phase Completion Status
 
 | Phase | Description | Status |
@@ -403,3 +451,4 @@ A `Dockerfile` bypasses all auto-detection and works — but it means you own th
 | 8 | Web Dashboard: Core UI | Done |
 | 9 | Web Dashboard: Tags, Check-in History & Bulk Actions | Done |
 | 10 | Backend: Telegram Auth & Rate Limiting | Done |
+| 11 | Telegram Bot: Webhook & Basic Commands | Done |
