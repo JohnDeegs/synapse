@@ -283,9 +283,9 @@ All Phase 9 features were implemented across 5 commits on `phase/9-web-advanced`
 - **Race condition fix**: `showApp()` now chains `fetchTags().then(() => fetchTasks())` so `allTags` is always populated before cards render. Previously, parallel fetch meant tag pickers sometimes rendered empty.
 - **Tag picker visibility logic**: picker only shows if there are unassigned tags remaining; hides entirely when all tags are assigned (clean, not a disabled state).
 
-### Status at pause
+### Status
 
-Implementation complete and committed. **Testing against the Phase 9 test matrix has not been done yet.** Pick up by running through `tasksV2.md` Phase 9 testing steps 1–9.
+**Complete and tested.** All 9 test steps passed. One bug found and fixed during testing: tag autocomplete dropdown was clipped by the scrolling task list container on the last card — fixed by switching from `position: absolute` to `position: fixed` with `getBoundingClientRect()` for viewport-relative positioning (commit `b0a7df6`).
 
 ---
 
@@ -301,4 +301,4 @@ Implementation complete and committed. **Testing against the Phase 9 test matrix
 | 6 | Deployment | Done |
 | 7 | Backend: Tags & Web Static Serving | Done |
 | 8 | Web Dashboard: Core UI | Done |
-| 9 | Web Dashboard: Tags, Check-in History & Bulk Actions | Implemented, untested |
+| 9 | Web Dashboard: Tags, Check-in History & Bulk Actions | Done |
