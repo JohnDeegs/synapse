@@ -3,8 +3,16 @@
 const https  = require('https');
 const crypto = require('crypto');
 const { stmts } = require('./db');
+const { chat }  = require('./llm');
+const { findRelevantTasks } = require('./embeddings');
+const { checkRateLimit }    = require('./telegram-rate-limit');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+
+// In-process chat history per chat_id: chatId -> [{role, parts}, ...]
+// Limited to last 6 turns (3 user + 3 model). Resets on server restart.
+const chatHistories = new Map();
+const MAX_HISTORY_TURNS = 6;
 
 // Deterministic webhook secret derived from the bot token — no extra env var needed.
 // Changes automatically if the bot token is rotated.
@@ -132,8 +140,48 @@ async function handleUpdate(update) {
     );
   }
 
-  // Placeholder — Phase 12 will wire up LLM here
-  return sendMessage(chatId, 'LLM not yet connected. This feature is coming soon!');
+  // Rate limit check
+  const rateResult = checkRateLimit(chatId);
+  if (!rateResult.allowed) {
+    return sendMessage(chatId,
+      `You\u2019re sending messages too fast. Please try again ${rateResult.retryAfter}.`
+    );
+  }
+
+  // LLM flow: fetch all tasks, find relevant ones, chat, send reply
+  const userId = link.user_id;
+  const allTasks = stmts.getAllTasks.all(userId);
+
+  let relevantTasks = [];
+  try {
+    relevantTasks = await findRelevantTasks(text, allTasks);
+  } catch (e) {
+    console.error('findRelevantTasks error:', e.message);
+    // Fall back to most recent active tasks if embeddings unavailable
+    relevantTasks = allTasks.filter(t => t.status === 'active').slice(0, 12);
+  }
+
+  const history = chatHistories.get(chatId) || [];
+
+  let reply;
+  try {
+    reply = await chat(text, relevantTasks, history, userId);
+  } catch (e) {
+    console.error('LLM chat error:', e.message);
+    return sendMessage(chatId, 'Sorry, something went wrong. Please try again.');
+  }
+
+  // Update in-process history (keep last MAX_HISTORY_TURNS turns)
+  history.push(
+    { role: 'user',  parts: [{ text }] },
+    { role: 'model', parts: [{ text: reply }] }
+  );
+  if (history.length > MAX_HISTORY_TURNS) {
+    history.splice(0, history.length - MAX_HISTORY_TURNS);
+  }
+  chatHistories.set(chatId, history);
+
+  return sendMessage(chatId, reply);
 }
 
 module.exports = { registerWebhook, sendMessage, handleUpdate, WEBHOOK_SECRET };
