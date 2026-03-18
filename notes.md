@@ -322,6 +322,31 @@ All Phase 9 features were implemented across 5 commits on `phase/9-web-advanced`
 
 ---
 
+## Railway Deployment: Railpack vs Nixpacks
+
+### The Railpack 0.20.0 build secret trap
+
+Railpack 0.20.0 introduced a behavior where env vars with names that pattern-match as secrets (e.g. `JWT_SECRET`) are injected as Docker build secrets rather than passed as runtime env vars. Build secrets must be explicitly mounted during `docker build` — Railway does not do this automatically. Result: `ERROR: failed to build: failed to solve: secret JWT_SECRET: not found`, even when `JWT_SECRET` is correctly set in the Railway Variables tab.
+
+**Fix:** Add `server/railway.toml` (in the service root, not the repo root) to force Nixpacks:
+
+```toml
+[build]
+builder = "NIXPACKS"
+```
+
+Nixpacks does not have this secret injection behavior. All env vars pass through as runtime variables as expected.
+
+### `railway.toml` must live in the service root, not the repo root
+
+Railway's service has a configured root directory (in our case `server/`). Any `railway.toml` placed in the repo root is silently ignored — Railway never reads it. The proof: the build log showed `$ npm run start` (the package.json script from `server/`) rather than the `startCommand` set in the root-level toml. Always place `railway.toml` inside whichever directory Railway's service is pointed at.
+
+### Dockerfile is overkill for a simple Node app on Railway
+
+A `Dockerfile` bypasses all auto-detection and works — but it means you own the base image, system dependencies, and Node version forever. Nixpacks handles all of that automatically from `package.json`. Prefer `railway.toml` + Nixpacks unless you have a genuine custom build requirement.
+
+---
+
 ## Phase Completion Status
 
 | Phase | Description | Status |
