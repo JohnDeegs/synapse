@@ -500,6 +500,9 @@ function renderCard(task) {
       acDropdown.innerHTML = matches.map(t =>
         `<div class="tag-ac-item" data-tag-id="${t.id}">${esc(t.name)}</div>`
       ).join('');
+      const rect = acInput.getBoundingClientRect();
+      acDropdown.style.top  = `${rect.bottom + 3}px`;
+      acDropdown.style.left = `${rect.left}px`;
       acDropdown.classList.remove('hidden');
       acDropdown.querySelectorAll('.tag-ac-item').forEach(item => {
         item.addEventListener('mousedown', e => {

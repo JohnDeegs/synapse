@@ -809,9 +809,7 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
 .tag-ac-input::placeholder { color: var(--text-secondary); }
 
 .tag-ac-dropdown {
-  position: absolute;
-  top: calc(100% + 3px);
-  left: 0;
+  position: fixed;
   min-width: 130px;
   max-height: 160px;
   overflow-y: auto;
