@@ -115,18 +115,10 @@ async function handleUpdate(update) {
     // One-time use: delete the code immediately
     stmts.deleteTelegramCodeById.run(codeRow.id);
 
-    // Upsert the link: remove any existing link for this user, then insert
+    // Upsert the link: clear any existing link for this user OR this chat_id, then insert
     stmts.deleteTelegramLinkByUserId.run(codeRow.user_id);
-    try {
-      stmts.createTelegramLink.run(codeRow.user_id, chatId);
-    } catch (e) {
-      if (e.message && e.message.includes('UNIQUE constraint failed')) {
-        return sendMessage(chatId,
-          'This Telegram account is already linked to another Synapse account.'
-        );
-      }
-      throw e;
-    }
+    stmts.deleteTelegramLinkByChatId.run(chatId);
+    stmts.createTelegramLink.run(codeRow.user_id, chatId);
 
     return sendMessage(chatId, 'Connected! You can now use Synapse from Telegram.');
   }
