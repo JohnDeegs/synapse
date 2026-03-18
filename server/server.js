@@ -9,6 +9,7 @@ const {
   createTask, getActiveTasks, getTaskById,
   checkinTask, completeTask, snoozeTask, deleteTask, updateTaskContent,
 } = require('./tasks');
+const telegram = require('./telegram');
 
 const PORT = process.env.PORT || 3000;
 
@@ -292,6 +293,22 @@ async function handleTelegramConnect(req, res) {
   send(res, 200, { userId: codeRow.user_id });
 }
 
+async function handleTelegramWebhook(req, res) {
+  const secretHeader = req.headers['x-telegram-bot-api-secret-token'];
+  if (!telegram.WEBHOOK_SECRET || secretHeader !== telegram.WEBHOOK_SECRET) {
+    return send(res, 403, { error: 'Forbidden' });
+  }
+
+  let body;
+  try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+
+  // Respond immediately — Telegram requires a fast 200 response
+  send(res, 200, { ok: true });
+
+  // Process the update asynchronously after responding
+  telegram.handleUpdate(body).catch(err => console.error('Telegram handleUpdate error:', err));
+}
+
 // ── Server ────────────────────────────────────────────────────────────────────
 
 const server = http.createServer(async (req, res) => {
@@ -317,6 +334,9 @@ const server = http.createServer(async (req, res) => {
 
     // Telegram connect — internal (no JWT, validated by one-time code)
     if (req.method === 'POST' && url === '/telegram/connect') return await handleTelegramConnect(req, res);
+
+    // Telegram webhook — called by Telegram servers
+    if (req.method === 'POST' && url === '/telegram/webhook') return await handleTelegramWebhook(req, res);
 
     // Static file serving — unauthenticated
     if (url === '/web' || url.startsWith('/web/')) return handleStaticFile(req, res);
@@ -352,4 +372,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Synapse server listening on port ${PORT}`);
+  if (process.env.TELEGRAM_BOT_TOKEN && process.env.APP_BASE_URL) {
+    telegram.registerWebhook(process.env.APP_BASE_URL)
+      .catch(err => console.error('Failed to register Telegram webhook:', err));
+  }
 });
