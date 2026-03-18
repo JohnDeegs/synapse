@@ -14,7 +14,7 @@ const { updateTaskEmbedding, backfillEmbeddings } = require('./embeddings');
 
 const PORT = process.env.PORT || 3000;
 
-const WEB_DIR = path.resolve(__dirname, '..', 'web');
+const WEB_DIR = path.resolve(__dirname, 'web');
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js':   'text/javascript',
