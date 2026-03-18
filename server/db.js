@@ -185,6 +185,9 @@ const stmts = {
   deleteTelegramLinkByUserId: db.prepare(
     'DELETE FROM telegram_links WHERE user_id = ?'
   ),
+  deleteTelegramLinkByChatId: db.prepare(
+    'DELETE FROM telegram_links WHERE chat_id = ?'
+  ),
 
   // Embeddings
   updateTaskEmbedding: db.prepare(

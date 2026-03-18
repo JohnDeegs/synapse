@@ -282,16 +282,10 @@ async function handleTelegramConnect(req, res) {
   // Delete the code — one-time use
   stmts.deleteTelegramCodeById.run(codeRow.id);
 
-  // Upsert the link: remove any previous link for this user, then insert
+  // Upsert the link: clear any existing link for this user OR this chat_id, then insert
   stmts.deleteTelegramLinkByUserId.run(codeRow.user_id);
-  try {
-    stmts.createTelegramLink.run(codeRow.user_id, String(chatId));
-  } catch (e) {
-    if (e.message && e.message.includes('UNIQUE constraint failed')) {
-      return send(res, 409, { error: 'This Telegram account is already linked to another user' });
-    }
-    throw e;
-  }
+  stmts.deleteTelegramLinkByChatId.run(String(chatId));
+  stmts.createTelegramLink.run(codeRow.user_id, String(chatId));
 
   send(res, 200, { userId: codeRow.user_id });
 }
