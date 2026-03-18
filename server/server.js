@@ -1,7 +1,8 @@
 require('dotenv').config();
-const http = require('http');
-const fs   = require('fs');
-const path = require('path');
+const http   = require('http');
+const fs     = require('fs');
+const path   = require('path');
+const crypto = require('crypto');
 const { stmts } = require('./db');
 const { hashPassword, verifyPassword, signToken, verifyToken } = require('./auth');
 const {
@@ -241,6 +242,56 @@ async function handleRemoveTag(req, res, user, taskId, tagId) {
   send(res, 200, { ok: true });
 }
 
+// ── Telegram route handlers ───────────────────────────────────────────────────
+
+const CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+function generateCode() {
+  const bytes = crypto.randomBytes(6);
+  return Array.from(bytes).map(b => CODE_CHARS[b % CODE_CHARS.length]).join('');
+}
+
+async function handlePostTelegramCode(req, res, user) {
+  // Delete any existing codes for this user, then create a fresh one
+  stmts.deleteCodesForUser.run(user.userId);
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  const code = stmts.createTelegramCode.get(user.userId, generateCode(), expiresAt);
+  send(res, 200, { code: code.code, expiresAt: code.expires_at });
+}
+
+async function handleGetTelegramCode(req, res, user) {
+  const code = stmts.getActiveTelegramCodeForUser.get(user.userId);
+  if (!code) return send(res, 200, { code: null });
+  send(res, 200, { code: code.code, expiresAt: code.expires_at });
+}
+
+async function handleTelegramConnect(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+
+  const { chatId, code } = body;
+  if (!chatId || !code) return send(res, 400, { error: 'chatId and code required' });
+
+  const codeRow = stmts.getTelegramCodeByCode.get(code);
+  if (!codeRow) return send(res, 400, { error: 'Invalid or expired code' });
+
+  // Delete the code — one-time use
+  stmts.deleteTelegramCodeById.run(codeRow.id);
+
+  // Upsert the link: remove any previous link for this user, then insert
+  stmts.deleteTelegramLinkByUserId.run(codeRow.user_id);
+  try {
+    stmts.createTelegramLink.run(codeRow.user_id, String(chatId));
+  } catch (e) {
+    if (e.message && e.message.includes('UNIQUE constraint failed')) {
+      return send(res, 409, { error: 'This Telegram account is already linked to another user' });
+    }
+    throw e;
+  }
+
+  send(res, 200, { userId: codeRow.user_id });
+}
+
 // ── Server ────────────────────────────────────────────────────────────────────
 
 const server = http.createServer(async (req, res) => {
@@ -259,6 +310,13 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'POST' && url === '/auth/register') return await handleRegister(req, res);
     if (req.method === 'POST' && url === '/auth/login')    return await handleLogin(req, res);
+
+    // Telegram auth endpoints — JWT-authenticated
+    if (req.method === 'POST' && url === '/auth/telegram-code') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handlePostTelegramCode(req, res, u); }
+    if (req.method === 'GET'  && url === '/auth/telegram-code') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetTelegramCode(req, res, u); }
+
+    // Telegram connect — internal (no JWT, validated by one-time code)
+    if (req.method === 'POST' && url === '/telegram/connect') return await handleTelegramConnect(req, res);
 
     // Static file serving — unauthenticated
     if (url === '/web' || url.startsWith('/web/')) return handleStaticFile(req, res);
