@@ -3,9 +3,10 @@
 const https  = require('https');
 const crypto = require('crypto');
 const { stmts } = require('./db');
-const { chat }  = require('./llm');
+const { chat, generateMorningBriefing } = require('./llm');
 const { findRelevantTasks } = require('./embeddings');
 const { checkRateLimit }    = require('./telegram-rate-limit');
+const { getActiveTasks }    = require('./tasks');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -183,4 +184,46 @@ async function handleUpdate(update) {
   return sendMessage(chatId, reply);
 }
 
-module.exports = { registerWebhook, sendMessage, handleUpdate, WEBHOOK_SECRET };
+/**
+ * Send a morning priority briefing to every linked Telegram user.
+ * Called by the daily scheduler in server.js.
+ */
+async function sendDailyBriefings() {
+  if (!BOT_TOKEN) return;
+
+  const links = stmts.getAllTelegramLinks.all();
+  for (const link of links) {
+    try {
+      const tasks = getActiveTasks(link.user_id);
+      if (tasks.length === 0) continue;
+
+      let message;
+      try {
+        message = await generateMorningBriefing(tasks);
+      } catch (e) {
+        console.error(`Briefing LLM error for user ${link.user_id}:`, e.message);
+      }
+
+      if (!message) {
+        // Fallback: plain-text summary
+        const now = new Date().toISOString();
+        const overdue = tasks.filter(t => t.next_reminder < now);
+        const top = tasks.slice(0, 5);
+        message =
+          `Good morning! You have ${tasks.length} active task(s)` +
+          (overdue.length ? `, ${overdue.length} overdue` : '') +
+          '.\n\nTop priorities:\n' +
+          top.map((t, i) => {
+            const due = t.due_date ? ` (due ${t.due_date})` : '';
+            return `${i + 1}. [${t.priority}] ${t.title}${due}`;
+          }).join('\n');
+      }
+
+      await sendMessage(link.chat_id, message);
+    } catch (e) {
+      console.error(`Briefing send error for user ${link.user_id}:`, e.message);
+    }
+  }
+}
+
+module.exports = { registerWebhook, sendMessage, handleUpdate, sendDailyBriefings, WEBHOOK_SECRET };

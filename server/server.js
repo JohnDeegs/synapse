@@ -8,8 +8,10 @@ const { hashPassword, verifyPassword, signToken, verifyToken } = require('./auth
 const {
   createTask, getActiveTasks, getTaskById,
   checkinTask, completeTask, snoozeTask, deleteTask, updateTaskContent,
+  escalateAllDueTasks,
 } = require('./tasks');
 const telegram = require('./telegram');
+const { sendDailyBriefings } = telegram;
 const { updateTaskEmbedding, backfillEmbeddings } = require('./embeddings');
 
 const PORT = process.env.PORT || 3000;
@@ -143,13 +145,14 @@ async function handleCreateTask(req, res, user) {
   let body;
   try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
 
-  const { title, priority, description } = body;
+  const { title, priority, description, due_date } = body;
   if (!title || !priority) return send(res, 400, { error: 'title and priority required' });
   if (!['P0','P1','P2','P3','P4'].includes(priority)) return send(res, 400, { error: 'priority must be P0–P4' });
   if (typeof title !== 'string' || title.length > 500) return send(res, 400, { error: 'title too long (max 500 chars)' });
   if (description !== undefined && (typeof description !== 'string' || description.length > 10000)) return send(res, 400, { error: 'description too long (max 10000 chars)' });
+  if (due_date !== undefined && due_date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(due_date)) return send(res, 400, { error: 'due_date must be YYYY-MM-DD' });
 
-  const task = createTask({ userId: user.userId, title, priority, description });
+  const task = createTask({ userId: user.userId, title, priority, description, dueDate: due_date || null });
   updateTaskEmbedding(task).catch(() => {}); // fire-and-forget
   send(res, 201, task);
 }
@@ -165,10 +168,11 @@ async function handlePatchTask(req, res, user, id) {
   const { action, note, minutes } = body;
 
   if (action === 'update') {
-    if (body.title === undefined && body.description === undefined) return send(res, 400, { error: 'title or description required' });
+    if (body.title === undefined && body.description === undefined && body.due_date === undefined) return send(res, 400, { error: 'title, description, or due_date required' });
     if (body.title !== undefined && (typeof body.title !== 'string' || body.title.length > 500)) return send(res, 400, { error: 'title too long (max 500 chars)' });
     if (body.description !== undefined && (typeof body.description !== 'string' || body.description.length > 10000)) return send(res, 400, { error: 'description too long (max 10000 chars)' });
-    const updated = updateTaskContent(task, { title: body.title, description: body.description });
+    if (body.due_date !== undefined && body.due_date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(body.due_date)) return send(res, 400, { error: 'due_date must be YYYY-MM-DD' });
+    const updated = updateTaskContent(task, { title: body.title, description: body.description, dueDate: body.due_date });
     updateTaskEmbedding(updated).catch(() => {}); // fire-and-forget
     return send(res, 200, updated);
   }
@@ -412,6 +416,49 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// ── Schedulers ────────────────────────────────────────────────────────────────
+
+/**
+ * Schedule the daily morning briefing.
+ * Fires at BRIEFING_HOUR (UTC, default 7) every day.
+ * Also runs due-date priority escalation before each briefing.
+ */
+function scheduleDailyBriefing() {
+  const BRIEFING_HOUR = parseInt(process.env.BRIEFING_HOUR || '7', 10);
+
+  function msUntilNextRun() {
+    const now = new Date();
+    const next = new Date(now);
+    next.setUTCHours(BRIEFING_HOUR, 0, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    return next - now;
+  }
+
+  function runAndSchedule() {
+    const escalated = escalateAllDueTasks();
+    if (escalated > 0) console.log(`Daily escalation: ${escalated} task(s) priority-bumped.`);
+    sendDailyBriefings()
+      .catch(err => console.error('Daily briefing error:', err));
+    setTimeout(runAndSchedule, msUntilNextRun());
+  }
+
+  const delay = msUntilNextRun();
+  console.log(`Daily briefing scheduled in ${Math.round(delay / 60000)} min (${new Date(Date.now() + delay).toISOString()})`);
+  setTimeout(runAndSchedule, delay);
+}
+
+/** Run due-date escalation every hour so priority bumps apply between briefings. */
+function scheduleHourlyEscalation() {
+  setInterval(() => {
+    try {
+      const n = escalateAllDueTasks();
+      if (n > 0) console.log(`Hourly escalation: ${n} task(s) priority-bumped.`);
+    } catch (e) {
+      console.error('Escalation error:', e.message);
+    }
+  }, 60 * 60 * 1000);
+}
+
 server.listen(PORT, () => {
   console.log(`Synapse server listening on port ${PORT}`);
   if (process.env.TELEGRAM_BOT_TOKEN && process.env.APP_BASE_URL) {
@@ -420,4 +467,8 @@ server.listen(PORT, () => {
   }
   backfillEmbeddings()
     .catch(err => console.error('Embedding backfill error:', err));
+  if (process.env.TELEGRAM_BOT_TOKEN) {
+    scheduleDailyBriefing();
+    scheduleHourlyEscalation();
+  }
 });

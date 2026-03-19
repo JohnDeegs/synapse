@@ -37,6 +37,7 @@ const TOOL_DECLARATIONS = [
         title:       { type: 'STRING', description: 'Task title' },
         priority:    { type: 'STRING', enum: ['P0','P1','P2','P3','P4'], description: 'Task priority: P0=critical(30min), P1=high(2hr), P2=medium(1day), P3=low(3days), P4=someday(1week)' },
         description: { type: 'STRING', description: 'Optional task description' },
+        due_date:    { type: 'STRING', description: 'Optional due date in YYYY-MM-DD format, e.g. "2026-03-25". Priority auto-escalates as deadline approaches.' },
       },
       required: ['title', 'priority'],
     },
@@ -117,6 +118,11 @@ Mapping language to priorities:
 - "low priority", "eventually" → P3
 - "someday", "nice to have", "maybe" → P4
 - Default to P2 if unclear
+
+Due dates:
+- If the user mentions a deadline, date, or "by X", set due_date (YYYY-MM-DD format) when creating a task.
+- Tasks with due dates auto-escalate priority as the deadline approaches (< 5 days → P2, < 1 day → P1, overdue → P0).
+- When listing tasks with due dates, show the due date so the user knows when they need to act.
 
 When listing tasks: numbered list, title first, priority level, then when the next nudge is due. Scannable, not verbose. Never show raw IDs — use them only for tool calls.
 Example:
@@ -231,7 +237,10 @@ function executeListTasks(args, userId) {
   if (filtered.length === 0) return 'No tasks found.';
 
   return filtered
-    .map(t => `[ID:${t.id}] ${t.priority} | ${formatRelativeTime(t.next_reminder)} | ${t.title}`)
+    .map(t => {
+      const due = t.due_date ? ` | due ${t.due_date}` : '';
+      return `[ID:${t.id}] ${t.priority} | ${formatRelativeTime(t.next_reminder)}${due} | ${t.title}`;
+    })
     .join('\n');
 }
 
@@ -241,6 +250,7 @@ function executeCreateTask(args, userId) {
     title:       args.title,
     priority:    args.priority,
     description: args.description || '',
+    dueDate:     args.due_date || null,
   });
   updateTaskEmbedding(task).catch(() => {}); // fire-and-forget so RAG finds it next time
   const next = formatRelativeTime(task.next_reminder);
@@ -394,4 +404,39 @@ async function chat(userMessage, relevantTasks, chatHistory, userId) {
   return 'Sorry, I could not process that request.';
 }
 
-module.exports = { chat, buildSystemPrompt, TOOL_DECLARATIONS };
+// ── Morning briefing ──────────────────────────────────────────────────────────
+
+/**
+ * Generate a morning priority briefing for a user's active task list.
+ * Single LLM call, no tool loop — read-only analysis.
+ * Returns a formatted string, or null if LLM is unavailable.
+ */
+async function generateMorningBriefing(tasks) {
+  if (!GEMINI_API_KEY || tasks.length === 0) return null;
+
+  const now = new Date().toISOString();
+  const taskLines = tasks
+    .map(t => {
+      const overdue = t.next_reminder < now ? ' [OVERDUE]' : '';
+      const due = t.due_date ? ` | due ${t.due_date}` : '';
+      return `[${t.priority}]${overdue} ${t.title}${due} | next nudge: ${formatRelativeTime(t.next_reminder)}`;
+    })
+    .join('\n');
+
+  const prompt =
+    `Morning briefing request. Here are the user's active tasks:\n\n${taskLines}\n\n` +
+    `Give a concise morning briefing — what should they focus on today and in what order? ` +
+    `Lead with anything overdue or due today/tomorrow. Max 5 items. ` +
+    `Keep it direct, warm, and actionable. Start with "Good morning!" or similar.`;
+
+  const response = await geminiGenerateContent({
+    system_instruction: { parts: [{ text: buildSystemPrompt() }] },
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+  });
+
+  const candidate = response.candidates && response.candidates[0];
+  return (candidate && candidate.content && candidate.content.parts &&
+    candidate.content.parts[0] && candidate.content.parts[0].text) || null;
+}
+
+module.exports = { chat, buildSystemPrompt, TOOL_DECLARATIONS, generateMorningBriefing };

@@ -26,7 +26,8 @@ db.exec(`
     checkin_count INTEGER NOT NULL DEFAULT 0,
     next_reminder TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    embedding TEXT
+    embedding TEXT,
+    due_date TEXT
   );
 
   CREATE TABLE IF NOT EXISTS checkin_log (
@@ -78,11 +79,14 @@ db.exec(`
   );
 `);
 
-// Add embedding column to existing databases (idempotent)
-try {
-  db.exec('ALTER TABLE tasks ADD COLUMN embedding TEXT');
-} catch (e) {
-  if (!e.message.includes('duplicate column name')) throw e;
+// Add columns to existing databases (idempotent)
+for (const ddl of [
+  'ALTER TABLE tasks ADD COLUMN embedding TEXT',
+  'ALTER TABLE tasks ADD COLUMN due_date TEXT',
+]) {
+  try { db.exec(ddl); } catch (e) {
+    if (!e.message.includes('duplicate column name')) throw e;
+  }
 }
 
 // Prepared statements
@@ -97,8 +101,8 @@ const stmts = {
 
   // Tasks
   createTask: db.prepare(`
-    INSERT INTO tasks (user_id, title, description, priority, next_reminder)
-    VALUES (@userId, @title, @description, @priority, @nextReminder)
+    INSERT INTO tasks (user_id, title, description, priority, next_reminder, due_date)
+    VALUES (@userId, @title, @description, @priority, @nextReminder, @dueDate)
     RETURNING *
   `),
   getActiveTasks: db.prepare(
@@ -121,8 +125,15 @@ const stmts = {
     'DELETE FROM tasks WHERE id = ? AND user_id = ?'
   ),
   updateTaskContent: db.prepare(`
-    UPDATE tasks SET title = @title, description = @description WHERE id = @id
+    UPDATE tasks SET title = @title, description = @description, due_date = @dueDate WHERE id = @id
   `),
+  updateTaskPriority: db.prepare(`
+    UPDATE tasks SET priority = @priority, next_reminder = @nextReminder WHERE id = @id
+  `),
+  getAllActiveTasksWithDueDates: db.prepare(
+    "SELECT * FROM tasks WHERE status = 'active' AND due_date IS NOT NULL"
+  ),
+  getAllTelegramLinks: db.prepare('SELECT * FROM telegram_links'),
 
   // Checkin log
   addCheckin: db.prepare(
