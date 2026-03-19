@@ -12,6 +12,30 @@ let selectedTaskIds = new Set();
 let countdownTimer = null;
 let newTaskMDE = null; // EasyMDE instance for the new-task form (lazy-init)
 
+// ── Theme ──────────────────────────────────────────────────────────────────────
+function initTheme() {
+  const saved = localStorage.getItem('synapse_theme');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const dark = saved ? saved === 'dark' : prefersDark;
+  applyTheme(dark);
+}
+
+function applyTheme(dark) {
+  document.documentElement.classList.toggle('dark', dark);
+  document.documentElement.classList.toggle('light', !dark);
+  const btn = document.getElementById('btn-theme');
+  if (btn) btn.textContent = dark ? '☀️' : '🌙';
+}
+
+function toggleTheme() {
+  const isDark = document.documentElement.classList.contains('dark');
+  const next = !isDark;
+  localStorage.setItem('synapse_theme', next ? 'dark' : 'light');
+  applyTheme(next);
+}
+
+initTheme();
+
 // ── EasyMDE factory ────────────────────────────────────────────────────────────
 function makeMDE(el, opts = {}) {
   return new EasyMDE(Object.assign({
@@ -680,6 +704,9 @@ function init() {
       showApp();
     } catch (err) { errEl.textContent = err.message; }
   });
+
+  // Theme toggle
+  document.getElementById('btn-theme').addEventListener('click', toggleTheme);
 
   // Logout
   document.getElementById('btn-logout').addEventListener('click', logout);

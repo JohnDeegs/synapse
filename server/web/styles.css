@@ -33,6 +33,26 @@
   }
 }
 
+html.dark {
+  --bg: #202124;
+  --surface: #292a2d;
+  --border: #3c4043;
+  --text-primary: #e8eaed;
+  --text-secondary: #9aa0a6;
+  --header-bg: #1557b0;
+  --card-hover: #35363a;
+}
+
+html.light {
+  --bg: #fff;
+  --surface: #f8f9fa;
+  --border: #e0e0e0;
+  --text-primary: #202124;
+  --text-secondary: #5f6368;
+  --header-bg: #1a73e8;
+  --card-hover: #f1f3f4;
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -188,6 +208,8 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
 
 .user-email { font-size: 13px; opacity: .9; }
 .app-header .btn-text { color: var(--header-text); opacity: .9; }
+.btn-theme-toggle { font-size: 16px; padding: 4px 8px; opacity: .85; }
+.btn-theme-toggle:hover { opacity: 1; text-decoration: none; }
 
 /* ── App Body ─────────────────────────────────────────────────────────────── */
 
@@ -481,6 +503,9 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
   .tag-chip { background: #174ea6; color: #aecbfa; }
 }
 
+html.dark .tag-chip { background: #174ea6; color: #aecbfa; }
+html.light .tag-chip { background: #e8f0fe; color: var(--accent); }
+
 .card-actions {
   display: flex;
   gap: 4px;
@@ -659,6 +684,9 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
   .tag-filter-chip.active { background: #174ea6; color: #aecbfa; }
 }
 
+html.dark .tag-filter-chip.active { background: #174ea6; color: #aecbfa; }
+html.light .tag-filter-chip.active { background: #e8f0fe; color: var(--accent); }
+
 /* ── Create tag form (sidebar) ────────────────────────────────────────────── */
 
 .create-tag-form {
@@ -726,6 +754,9 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
   .bulk-bar { background: #1a2f5e; }
 }
 
+html.dark .bulk-bar { background: #1a2f5e; }
+html.light .bulk-bar { background: #e8f0fe; }
+
 #bulk-count {
   font-size: 13px;
   font-weight: 500;
@@ -761,6 +792,9 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
 @media (prefers-color-scheme: dark) {
   .tag-chip { background: #174ea6; color: #aecbfa; }
 }
+
+html.dark .tag-chip { background: #174ea6; color: #aecbfa; }
+html.light .tag-chip { background: #e8f0fe; color: var(--accent); }
 
 .tag-remove {
   background: none;
