@@ -136,6 +136,63 @@
     }
     .checkin-row button:hover { background: #7d6ef7; }
 
+    /* Due date */
+    .task-due {
+      font-size: 0.73rem;
+      color: #888;
+      margin-bottom: 4px;
+      cursor: pointer;
+    }
+    .task-due:hover { color: #6b5bf5; }
+    .task-due.no-due { opacity: .5; }
+    .due-edit-row {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 4px;
+    }
+    .due-edit-row input[type="date"] {
+      flex: 1;
+      background: #1a1a24;
+      border: 1px solid #6b5bf5;
+      color: #e0e0e8;
+      border-radius: 4px;
+      padding: 3px 6px;
+      font-size: 0.8rem;
+      font-family: inherit;
+    }
+    .due-edit-row button {
+      background: #6b5bf5;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .due-edit-row .btn-due-clear { background: #333; }
+
+    /* Due filters */
+    #due-filters {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .due-filter {
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 10px;
+      border: 1px solid #333;
+      background: #1a1a24;
+      color: #aaa;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .due-filter.active {
+      background: #6b5bf5;
+      border-color: #6b5bf5;
+      color: #fff;
+    }
+
     /* Divider */
     hr { border: none; border-top: 1px solid #222; margin: 10px 0; }
 
@@ -151,6 +208,7 @@
     <form id="add-form">
       <input type="text" id="new-title" placeholder="New task title…" required />
       <textarea id="new-desc" placeholder="Description (optional)"></textarea>
+      <input type="date" id="new-due-date" />
       <div class="form-row">
         <select id="new-priority">
           <option value="P0">P0 — Critical</option>
@@ -165,6 +223,13 @@
     </form>
 
     <hr />
+
+    <div id="due-filters">
+      <button class="due-filter active" data-filter="all">All</button>
+      <button class="due-filter" data-filter="today">Today</button>
+      <button class="due-filter" data-filter="week">Week</button>
+      <button class="due-filter" data-filter="month">Month</button>
+    </div>
 
     <div id="loading">Loading tasks…</div>
     <div id="task-list" style="display:none"></div>

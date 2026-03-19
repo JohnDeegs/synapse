@@ -8,6 +8,7 @@ let allTags   = [];
 let sortBy       = 'next_reminder';
 let filterStatus = 'active';
 let filterTag    = null; // null = all tags, number = specific tag id
+let filterDue    = 'all'; // 'all' | 'today' | 'week' | 'month'
 let selectedTaskIds = new Set();
 let countdownTimer = null;
 let newTaskMDE = null; // EasyMDE instance for the new-task form (lazy-init)
@@ -177,8 +178,10 @@ async function fetchTasks() {
   updateStats();
 }
 
-async function createTask(title, priority, description) {
-  const task = await api('POST', '/tasks', { title, priority, description });
+async function createTask(title, priority, description, dueDate) {
+  const body = { title, priority, description };
+  if (dueDate) body.due_date = dueDate;
+  const task = await api('POST', '/tasks', body);
   task.tags = [];
   allTasks.push(task);
   renderTasks();
@@ -276,6 +279,23 @@ function updateStats() {
 // ── Sort & Filter ──────────────────────────────────────────────────────────────
 const PRIORITY_ORDER = { P0: 0, P1: 1, P2: 2, P3: 3, P4: 4 };
 
+function matchesDueFilter(task) {
+  if (filterDue === 'all') return true;
+  if (!task.due_date) return false;
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const due = new Date(task.due_date + 'T00:00:00');
+  if (filterDue === 'today') return task.due_date === todayStr;
+  if (filterDue === 'week') {
+    const weekEnd = new Date(today); weekEnd.setDate(weekEnd.getDate() + 7);
+    return due >= new Date(todayStr + 'T00:00:00') && due <= weekEnd;
+  }
+  if (filterDue === 'month') {
+    return due.getMonth() === today.getMonth() && due.getFullYear() === today.getFullYear();
+  }
+  return true;
+}
+
 function getSortedFilteredTasks() {
   const filtered = allTasks.filter(t => {
     if (filterStatus === 'active')    return t.status === 'active';
@@ -284,7 +304,7 @@ function getSortedFilteredTasks() {
   }).filter(t => {
     if (filterTag === null) return true;
     return (t.tags || []).some(tag => tag.id === filterTag);
-  });
+  }).filter(matchesDueFilter);
   return filtered.sort((a, b) => {
     if (sortBy === 'priority')    return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
     if (sortBy === 'created_at')  return new Date(a.created_at) - new Date(b.created_at);
@@ -376,6 +396,12 @@ function renderCard(task) {
     <button class="btn-action btn-snooze">⏰ Snooze 1h</button>
   ` : '';
 
+  const dueHtml = task.due_date
+    ? `<span class="task-due${isActive ? ' editable' : ''}" title="${isActive ? 'Click to change' : ''}">📅 ${task.due_date}</span>`
+    : isActive
+      ? `<span class="task-due no-due editable" title="Click to set due date">+ Due date</span>`
+      : '';
+
   el.innerHTML = `
     <div class="card-header">
       <input type="checkbox" class="task-checkbox" ${isSelected ? 'checked' : ''}>
@@ -384,6 +410,7 @@ function renderCard(task) {
       <span class="${countdownClass(task.next_reminder)}" data-countdown="${task.next_reminder}">
         ${formatCountdown(task.next_reminder)}
       </span>
+      ${dueHtml}
       <span class="task-status-badge">${task.status}</span>
     </div>
     <div class="card-desc">
@@ -453,6 +480,36 @@ function renderCard(task) {
         if (e.key === 'Escape') renderTasks();
       });
     });
+  }
+
+  // ── Inline editing: due date ─────────────────────────────────────────
+  if (isActive) {
+    const dueEl = el.querySelector('.task-due');
+    if (dueEl) {
+      dueEl.addEventListener('click', () => {
+        const input = document.createElement('input');
+        input.type = 'date';
+        input.value = task.due_date || '';
+        input.className = 'due-date-input';
+        const save = async () => {
+          const newDate = input.value || null;
+          if (newDate !== (task.due_date || null)) {
+            try {
+              await patchTask(task.id, { action: 'update', title: task.title, description: task.description, due_date: newDate });
+            } catch (err) { alert('Failed: ' + err.message); renderTasks(); }
+          } else {
+            renderTasks();
+          }
+        };
+        dueEl.replaceWith(input);
+        input.focus();
+        input.addEventListener('blur', save);
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+          if (e.key === 'Escape') renderTasks();
+        });
+      });
+    }
   }
 
   // ── Inline editing: description (EasyMDE) ────────────────────────────────
@@ -731,13 +788,15 @@ function init() {
     const title = document.getElementById('new-title').value.trim();
     const priority = document.getElementById('new-priority').value;
     const description = newTaskMDE ? newTaskMDE.value().trim() : '';
+    const dueDate = document.getElementById('new-due-date').value || null;
     const errEl = document.getElementById('create-error');
     errEl.textContent = '';
     if (!title) { errEl.textContent = 'Title is required.'; return; }
     try {
-      await createTask(title, priority, description);
+      await createTask(title, priority, description, dueDate);
       document.getElementById('new-title').value = '';
       document.getElementById('new-priority').value = 'P2';
+      document.getElementById('new-due-date').value = '';
       if (newTaskMDE) newTaskMDE.value('');
       document.getElementById('new-task-form').classList.add('hidden');
     } catch (err) { errEl.textContent = err.message; }
@@ -746,6 +805,13 @@ function init() {
   // Also submit new task on Enter in title field
   document.getElementById('new-title').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('btn-create-task').click();
+  });
+
+  // Due date filter
+  document.getElementById('filter-due').addEventListener('change', e => {
+    filterDue = e.target.value;
+    selectedTaskIds.clear();
+    renderTasks();
   });
 
   // Sort / filter

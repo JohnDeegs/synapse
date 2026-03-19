@@ -911,6 +911,35 @@ html.light .tag-chip { background: #e8f0fe; color: var(--accent); }
 .btn-danger-text { color: var(--danger); }
 .btn-danger-text:hover { text-decoration: underline; }
 
+/* ── Due date ─────────────────────────────────────────────────────────────── */
+
+.task-due {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.task-due.editable { cursor: pointer; }
+.task-due.editable:hover { color: var(--accent); text-decoration: underline; }
+.task-due.no-due { opacity: .5; }
+
+.due-date-input {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 2px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.due-date-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(26,115,232,.2);
+}
+
 /* ── Misc ─────────────────────────────────────────────────────────────────── */
 
 .loading, .empty-state {

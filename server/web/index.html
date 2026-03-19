@@ -118,6 +118,14 @@
                   <option value="all">All</option>
                 </select>
               </label>
+              <label>Due:
+                <select id="filter-due">
+                  <option value="all">All</option>
+                  <option value="today">Today</option>
+                  <option value="week">This week</option>
+                  <option value="month">This month</option>
+                </select>
+              </label>
               <label>Sort:
                 <select id="sort-by">
                   <option value="next_reminder">Next reminder</option>
@@ -149,6 +157,7 @@
               <option value="P3">P3 – Low (every 3 days)</option>
               <option value="P4">P4 – Future (weekly)</option>
             </select>
+            <input type="date" id="new-due-date" placeholder="Due date (optional)">
             <textarea id="new-desc" placeholder="Description (Markdown supported)" rows="3"></textarea>
             <div id="create-error" class="error-msg"></div>
             <div class="form-actions">

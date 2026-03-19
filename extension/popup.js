@@ -2,6 +2,28 @@
 
 let apiBase = '';
 let token = '';
+let filterDue = 'all';
+let allTasks = [];
+
+function applyDueFilter(tasks) {
+  if (filterDue === 'all') return tasks;
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  return tasks.filter(task => {
+    if (!task.due_date) return false;
+    if (filterDue === 'today') return task.due_date === todayStr;
+    if (filterDue === 'week') {
+      const due = new Date(task.due_date + 'T00:00:00');
+      const weekEnd = new Date(today); weekEnd.setDate(weekEnd.getDate() + 7);
+      return due >= new Date(todayStr + 'T00:00:00') && due <= weekEnd;
+    }
+    if (filterDue === 'month') {
+      const due = new Date(task.due_date + 'T00:00:00');
+      return due.getMonth() === today.getMonth() && due.getFullYear() === today.getFullYear();
+    }
+    return true;
+  });
+}
 
 function formatCountdown(nextReminderMs) {
   const diffMs = nextReminderMs - Date.now();
@@ -24,20 +46,24 @@ function renderTasks(tasks) {
   const list = document.getElementById('task-list');
   list.innerHTML = '';
 
-  if (tasks.length === 0) {
-    list.innerHTML = '<div class="empty">No active tasks. Add one above!</div>';
+  const visible = applyDueFilter(tasks);
+
+  if (visible.length === 0) {
+    list.innerHTML = `<div class="empty">${filterDue === 'all' ? 'No active tasks. Add one above!' : 'No tasks match this due date filter.'}</div>`;
     return;
   }
 
   // Sort by nextReminder ascending
-  tasks.sort((a, b) => a.next_reminder - b.next_reminder);
+  visible.sort((a, b) => new Date(a.next_reminder) - new Date(b.next_reminder));
 
-  tasks.forEach(task => {
+  visible.forEach(task => {
     const card = document.createElement('div');
     card.className = 'task-card';
     card.dataset.id = task.id;
 
     const countdown = formatCountdown(new Date(task.next_reminder).getTime());
+    const dueLabel = task.due_date ? `📅 ${task.due_date}` : '+ Due date';
+    const dueClass = task.due_date ? 'task-due' : 'task-due no-due';
 
     card.innerHTML = `
       <div class="task-header">
@@ -45,6 +71,12 @@ function renderTasks(tasks) {
         <span class="task-title">${escHtml(task.title)}</span>
       </div>
       <div class="task-countdown${countdown.overdue ? ' overdue' : ''}">${countdown.text}</div>
+      <div class="${dueClass}">${dueLabel}</div>
+      <div class="due-edit-row" style="display:none">
+        <input type="date" class="due-date-input" value="${task.due_date || ''}" />
+        <button class="btn-due-save">Save</button>
+        <button class="btn-due-clear">Clear</button>
+      </div>
       <div class="task-actions">
         <button class="btn-checkin">Check-in</button>
         <button class="btn-complete">Complete</button>
@@ -62,6 +94,19 @@ function renderTasks(tasks) {
         <button class="btn-checkin-submit">OK</button>
       </div>
     `;
+
+    // Due date: toggle edit row
+    card.querySelector('.task-due').addEventListener('click', () => {
+      const row = card.querySelector('.due-edit-row');
+      row.style.display = row.style.display === 'none' ? 'flex' : 'none';
+    });
+    card.querySelector('.btn-due-save').addEventListener('click', () => {
+      const val = card.querySelector('.due-date-input').value || null;
+      patchTask(task.id, { action: 'update', title: task.title, description: task.description, due_date: val });
+    });
+    card.querySelector('.btn-due-clear').addEventListener('click', () => {
+      patchTask(task.id, { action: 'update', title: task.title, description: task.description, due_date: null });
+    });
 
     // Check-in: toggle note input
     card.querySelector('.btn-checkin').addEventListener('click', () => {
@@ -124,10 +169,10 @@ async function loadTasks() {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const tasks = await res.json();
+    allTasks = await res.json();
     loading.style.display = 'none';
     list.style.display = 'flex';
-    renderTasks(tasks);
+    renderTasks(allTasks);
   } catch (err) {
     loading.textContent = 'Failed to load tasks.';
   }
@@ -151,17 +196,19 @@ async function patchTask(id, body) {
   }
 }
 
-async function addTask(title, priority, description) {
+async function addTask(title, priority, description, dueDate) {
   const errEl = document.getElementById('add-error');
   errEl.textContent = '';
   try {
+    const body = { title, priority, description };
+    if (dueDate) body.due_date = dueDate;
     const res = await fetch(`${apiBase}/tasks`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ title, priority, description })
+      body: JSON.stringify(body)
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -172,6 +219,7 @@ async function addTask(title, priority, description) {
     document.getElementById('new-title').value = '';
     document.getElementById('new-desc').value = '';
     document.getElementById('new-priority').value = 'P2';
+    document.getElementById('new-due-date').value = '';
     await loadTasks();
   } catch (err) {
     errEl.textContent = 'Network error. Is the server running?';
@@ -200,7 +248,17 @@ chrome.storage.local.get(['token', 'apiBase'], data => {
     const title = document.getElementById('new-title').value.trim();
     const priority = document.getElementById('new-priority').value;
     const description = document.getElementById('new-desc').value.trim();
-    if (title) addTask(title, priority, description);
+    const dueDate = document.getElementById('new-due-date').value || null;
+    if (title) addTask(title, priority, description, dueDate);
+  });
+
+  // Due date filter buttons
+  document.getElementById('due-filters').addEventListener('click', e => {
+    const btn = e.target.closest('.due-filter');
+    if (!btn) return;
+    filterDue = btn.dataset.filter;
+    document.querySelectorAll('.due-filter').forEach(b => b.classList.toggle('active', b === btn));
+    renderTasks(allTasks);
   });
 
   loadTasks();
