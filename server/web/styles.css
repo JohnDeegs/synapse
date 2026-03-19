@@ -370,18 +370,22 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
 
 .priority-select {
   appearance: none;
+  -webkit-appearance: none;
   border: none;
   font-size: 11px;
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 12px;
   white-space: nowrap;
-  color: #fff;
   flex-shrink: 0;
   cursor: pointer;
   font-family: inherit;
 }
-.priority-select.pp2 { color: #000; }
+.priority-select.pp0 { background: var(--p0); color: #fff; }
+.priority-select.pp1 { background: var(--p1); color: #fff; }
+.priority-select.pp2 { background: var(--p2); color: #000; }
+.priority-select.pp3 { background: var(--p3); color: #fff; }
+.priority-select.pp4 { background: var(--p4); color: #fff; }
 
 /* ── Card Header ──────────────────────────────────────────────────────────── */
 
