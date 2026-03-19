@@ -123,3 +123,43 @@ document.getElementById('logout-btn').addEventListener('click', () => {
     setMsg(document.getElementById('login-msg'), '', '');
   });
 });
+
+// ── Quiet Hours ────────────────────────────────────────────────────────────
+
+function buildHourOptions(selectEl) {
+  for (let h = 0; h < 24; h++) {
+    const opt = document.createElement('option');
+    opt.value = h;
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    opt.textContent = `${h12}:00 ${h < 12 ? 'AM' : 'PM'}`;
+    selectEl.appendChild(opt);
+  }
+}
+
+buildHourOptions(document.getElementById('quiet-start'));
+buildHourOptions(document.getElementById('quiet-end'));
+
+chrome.storage.local.get(['quietEnabled', 'quietStart', 'quietEnd'], ({ quietEnabled, quietStart, quietEnd }) => {
+  const enabledEl = document.getElementById('quiet-enabled');
+  const rangeEl   = document.getElementById('quiet-range');
+  enabledEl.checked = quietEnabled !== false; // default: enabled
+  document.getElementById('quiet-start').value = quietStart !== undefined ? quietStart : 23;
+  document.getElementById('quiet-end').value   = quietEnd   !== undefined ? quietEnd   : 7;
+  rangeEl.style.display = enabledEl.checked ? 'block' : 'none';
+});
+
+document.getElementById('quiet-enabled').addEventListener('change', function () {
+  document.getElementById('quiet-range').style.display = this.checked ? 'block' : 'none';
+});
+
+const quietSaveBtn = document.getElementById('quiet-save-btn');
+quietSaveBtn.addEventListener('click', () => {
+  const enabled = document.getElementById('quiet-enabled').checked;
+  const start   = parseInt(document.getElementById('quiet-start').value, 10);
+  const end     = parseInt(document.getElementById('quiet-end').value, 10);
+  setLoading(quietSaveBtn, true);
+  chrome.storage.local.set({ quietEnabled: enabled, quietStart: start, quietEnd: end }, () => {
+    setLoading(quietSaveBtn, false);
+    setMsg(document.getElementById('quiet-msg'), 'Saved.', 'success');
+  });
+});

@@ -21,9 +21,28 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   checkAndNotify();
 });
 
+function isDuringQuietHours(start, end) {
+  const hour = new Date().getHours(); // 0–23 local time
+  if (start < end) return hour >= start && hour < end; // normal window e.g. 9→17
+  return hour >= start || hour < end;                  // midnight-crossing e.g. 23→7
+}
+
+function msUntilQuietEnd(endHour) {
+  const target = new Date();
+  target.setHours(endHour, 0, 0, 0);
+  if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
+  return target.getTime() - Date.now();
+}
+
 async function checkAndNotify() {
-  const { token, apiBase } = await chrome.storage.local.get(['token', 'apiBase']);
+  const { token, apiBase, quietEnabled, quietStart, quietEnd } =
+    await chrome.storage.local.get(['token', 'apiBase', 'quietEnabled', 'quietStart', 'quietEnd']);
   if (!token || !apiBase) return;
+
+  const qEnabled = quietEnabled !== false;
+  const qStart   = quietStart  !== undefined ? quietStart  : 23;
+  const qEnd     = quietEnd    !== undefined ? quietEnd    : 7;
+  const inQuiet  = qEnabled && isDuringQuietHours(qStart, qEnd);
 
   let tasks;
   try {
@@ -37,6 +56,21 @@ async function checkAndNotify() {
   }
 
   const now = Date.now();
+
+  if (inQuiet) {
+    // Freeze timer: snooze overdue tasks forward to quiet-end, staggered 2 min apart
+    const overdue = tasks.filter(t => t.status === 'active' && new Date(t.next_reminder).getTime() <= now);
+    const minsUntilEnd = Math.ceil(msUntilQuietEnd(qEnd) / 60000);
+    for (let i = 0; i < overdue.length; i++) {
+      await fetch(`${apiBase}/tasks/${overdue[i].id}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'snooze', minutes: minsUntilEnd + i * 2 })
+      }).catch(() => {});
+    }
+    return;
+  }
+
   for (const task of tasks) {
     const due = new Date(task.next_reminder).getTime();
     if (due > now) continue;
