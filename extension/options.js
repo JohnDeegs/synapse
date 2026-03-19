@@ -139,14 +139,33 @@ function buildHourOptions(selectEl) {
 buildHourOptions(document.getElementById('quiet-start'));
 buildHourOptions(document.getElementById('quiet-end'));
 
-chrome.storage.local.get(['quietEnabled', 'quietStart', 'quietEnd'], ({ quietEnabled, quietStart, quietEnd }) => {
-  const enabledEl = document.getElementById('quiet-enabled');
-  const rangeEl   = document.getElementById('quiet-range');
-  enabledEl.checked = quietEnabled !== false; // default: enabled
-  document.getElementById('quiet-start').value = quietStart !== undefined ? quietStart : 23;
-  document.getElementById('quiet-end').value   = quietEnd   !== undefined ? quietEnd   : 7;
-  rangeEl.style.display = enabledEl.checked ? 'block' : 'none';
-});
+// Load quiet hours from API, fall back to local cache
+chrome.storage.local.get(['token', 'apiBase', 'quietEnabled', 'quietStart', 'quietEnd'],
+  async ({ token, apiBase, quietEnabled, quietStart, quietEnd }) => {
+    const enabledEl = document.getElementById('quiet-enabled');
+    const rangeEl   = document.getElementById('quiet-range');
+
+    if (token && apiBase) {
+      try {
+        const res = await fetch(`${apiBase.replace(/\/$/, '')}/settings`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const s = await res.json();
+          quietEnabled = s.quiet_enabled !== 0;
+          quietStart   = s.quiet_start;
+          quietEnd     = s.quiet_end;
+          chrome.storage.local.set({ quietEnabled, quietStart, quietEnd });
+        }
+      } catch {}
+    }
+
+    enabledEl.checked = quietEnabled !== false;
+    document.getElementById('quiet-start').value = quietStart !== undefined ? quietStart : 23;
+    document.getElementById('quiet-end').value   = quietEnd   !== undefined ? quietEnd   : 7;
+    rangeEl.style.display = enabledEl.checked ? 'block' : 'none';
+  }
+);
 
 document.getElementById('quiet-enabled').addEventListener('change', function () {
   document.getElementById('quiet-range').style.display = this.checked ? 'block' : 'none';
@@ -157,9 +176,26 @@ quietSaveBtn.addEventListener('click', () => {
   const enabled = document.getElementById('quiet-enabled').checked;
   const start   = parseInt(document.getElementById('quiet-start').value, 10);
   const end     = parseInt(document.getElementById('quiet-end').value, 10);
-  setLoading(quietSaveBtn, true);
-  chrome.storage.local.set({ quietEnabled: enabled, quietStart: start, quietEnd: end }, () => {
-    setLoading(quietSaveBtn, false);
-    setMsg(document.getElementById('quiet-msg'), 'Saved.', 'success');
+  const msgEl   = document.getElementById('quiet-msg');
+
+  chrome.storage.local.get(['token', 'apiBase'], async ({ token, apiBase }) => {
+    setLoading(quietSaveBtn, true);
+    try {
+      if (token && apiBase) {
+        const res = await fetch(`${apiBase.replace(/\/$/, '')}/settings`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quiet_enabled: enabled, quiet_start: start, quiet_end: end })
+        });
+        if (!res.ok) throw new Error('Save failed');
+      }
+      chrome.storage.local.set({ quietEnabled: enabled, quietStart: start, quietEnd: end }, () => {
+        setLoading(quietSaveBtn, false);
+        setMsg(msgEl, 'Saved.', 'success');
+      });
+    } catch (err) {
+      setLoading(quietSaveBtn, false);
+      setMsg(msgEl, err.message, 'error');
+    }
   });
 });

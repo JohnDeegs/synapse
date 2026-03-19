@@ -8,7 +8,7 @@ const { hashPassword, verifyPassword, signToken, verifyToken } = require('./auth
 const {
   createTask, getActiveTasks, getTaskById,
   checkinTask, completeTask, snoozeTask, deleteTask, updateTaskContent,
-  escalateAllDueTasks,
+  changePriority, escalateAllDueTasks,
 } = require('./tasks');
 const telegram = require('./telegram');
 const { sendDailyBriefings } = telegram;
@@ -168,13 +168,20 @@ async function handlePatchTask(req, res, user, id) {
   const { action, note, minutes } = body;
 
   if (action === 'update') {
-    if (body.title === undefined && body.description === undefined && body.due_date === undefined) return send(res, 400, { error: 'title, description, or due_date required' });
+    if (body.title === undefined && body.description === undefined && body.due_date === undefined && body.priority === undefined)
+      return send(res, 400, { error: 'At least one field required' });
     if (body.title !== undefined && (typeof body.title !== 'string' || body.title.length > 500)) return send(res, 400, { error: 'title too long (max 500 chars)' });
     if (body.description !== undefined && (typeof body.description !== 'string' || body.description.length > 10000)) return send(res, 400, { error: 'description too long (max 10000 chars)' });
     if (body.due_date !== undefined && body.due_date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(body.due_date)) return send(res, 400, { error: 'due_date must be YYYY-MM-DD' });
+    if (body.priority !== undefined && !['P0','P1','P2','P3','P4'].includes(body.priority)) return send(res, 400, { error: 'priority must be P0–P4' });
+    // Priority-only change: recalculate next_reminder from new priority
+    if (body.priority !== undefined && body.title === undefined && body.description === undefined && body.due_date === undefined) {
+      return send(res, 200, changePriority(task, body.priority));
+    }
     const updated = updateTaskContent(task, { title: body.title, description: body.description, dueDate: body.due_date });
-    updateTaskEmbedding(updated).catch(() => {}); // fire-and-forget
-    return send(res, 200, updated);
+    const final = body.priority ? changePriority(updated, body.priority) : updated;
+    updateTaskEmbedding(final).catch(() => {}); // fire-and-forget
+    return send(res, 200, final);
   }
   if (action === 'checkin') {
     if (body.priority !== undefined && !['P0','P1','P2','P3','P4'].includes(body.priority)) {
@@ -389,6 +396,26 @@ const server = http.createServer(async (req, res) => {
 
     // Static file serving — unauthenticated
     if (url === '/web' || url.startsWith('/web/')) return handleStaticFile(req, res);
+
+    // Settings — require auth
+    if (req.method === 'GET' && url === '/settings') {
+      const u = authenticate(req);
+      if (!u) return send(res, 401, { error: 'Unauthorized' });
+      const row = stmts.getSettings.get(u.userId);
+      return send(res, 200, row || { quiet_enabled: 1, quiet_start: 23, quiet_end: 7 });
+    }
+    if (req.method === 'PATCH' && url === '/settings') {
+      const u = authenticate(req);
+      if (!u) return send(res, 401, { error: 'Unauthorized' });
+      let body;
+      try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+      const { quiet_enabled, quiet_start, quiet_end } = body;
+      if (typeof quiet_start !== 'number' || quiet_start < 0 || quiet_start > 23 ||
+          typeof quiet_end   !== 'number' || quiet_end   < 0 || quiet_end   > 23)
+        return send(res, 400, { error: 'quiet_start and quiet_end must be 0–23' });
+      stmts.upsertSettings.run({ userId: u.userId, quietEnabled: quiet_enabled ? 1 : 0, quietStart: quiet_start, quietEnd: quiet_end });
+      return send(res, 200, stmts.getSettings.get(u.userId));
+    }
 
     // Tag routes — require auth
     if (req.method === 'GET'  && url === '/tags') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetTags(req, res, u); }

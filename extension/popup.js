@@ -65,7 +65,7 @@ function renderTasks(tasks) {
 
     card.innerHTML = `
       <div class="task-header">
-        <span class="priority-badge ${priorityClass(task.priority)}">${task.priority}</span>
+        <select class="priority-select ${priorityClass(task.priority)}">${['P0','P1','P2','P3','P4'].map(p => `<option value="${p}"${p === task.priority ? ' selected' : ''}>${p}</option>`).join('')}</select>
         <span class="task-title">${escHtml(task.title)}</span>
       </div>
       <div class="task-countdown${countdown.overdue ? ' overdue' : ''}">${countdown.text}</div>
@@ -87,6 +87,13 @@ function renderTasks(tasks) {
         <button class="btn-checkin-submit">OK</button>
       </div>
     `;
+
+    // Priority select
+    const prioritySel = card.querySelector('.priority-select');
+    prioritySel.addEventListener('change', function () {
+      prioritySel.className = `priority-select ${priorityClass(this.value)}`;
+      patchTask(task.id, { action: 'update', priority: this.value });
+    });
 
     // Due date picker
     const dueBtn = card.querySelector('.task-due-btn');

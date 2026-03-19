@@ -406,7 +406,12 @@ function renderCard(task) {
   el.innerHTML = `
     <div class="card-header">
       <input type="checkbox" class="task-checkbox" ${isSelected ? 'checked' : ''}>
-      <span class="priority-badge pp${task.priority.toLowerCase()}">${task.priority}</span>
+      ${isActive
+        ? `<select class="priority-select pp${task.priority.toLowerCase()}" title="Change priority">
+             ${['P0','P1','P2','P3','P4'].map(p => `<option value="${p}"${p === task.priority ? ' selected' : ''}>${p}</option>`).join('')}
+           </select>`
+        : `<span class="priority-badge pp${task.priority.toLowerCase()}">${task.priority}</span>`
+      }
       <span class="task-title">${esc(task.title)}</span>
       <span class="${countdownClass(task.next_reminder)}" data-countdown="${task.next_reminder}">
         ${formatCountdown(task.next_reminder)}
@@ -482,6 +487,16 @@ function renderCard(task) {
       });
     });
   }
+
+  // ── Priority select ───────────────────────────────────────────────────
+  el.querySelector('.priority-select')?.addEventListener('change', async function () {
+    const sel = this;
+    const prev = task.priority;
+    sel.className = `priority-select pp${this.value.toLowerCase()}`;
+    try {
+      await patchTask(task.id, { action: 'update', priority: this.value });
+    } catch (err) { alert(err.message); sel.value = prev; sel.className = `priority-select pp${prev.toLowerCase()}`; }
+  });
 
   // ── Due date picker ───────────────────────────────────────────────────
   if (isActive) {
@@ -701,6 +716,7 @@ function showApp() {
   // Load tags first so tag pickers are populated when task cards render
   fetchTags().then(() => fetchTasks()).catch(e => console.error(e));
   fetchTelegramStatus();
+  initQuietHoursUI();
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(updateCountdowns, 30_000);
 }
@@ -857,6 +873,51 @@ function init() {
   // Boot
   if (token) showApp();
   else showLogin();
+}
+
+async function initQuietHoursUI() {
+  const startEl   = document.getElementById('quiet-start-web');
+  const endEl     = document.getElementById('quiet-end-web');
+  const enabledEl = document.getElementById('quiet-enabled-web');
+  const rangeEl   = document.getElementById('quiet-range-web');
+
+  for (let h = 0; h < 24; h++) {
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const label = `${h12}:00 ${h < 12 ? 'AM' : 'PM'}`;
+    [startEl, endEl].forEach(sel => {
+      const opt = document.createElement('option');
+      opt.value = h; opt.textContent = label;
+      sel.appendChild(opt);
+    });
+  }
+
+  try {
+    const s = await api('GET', '/settings');
+    enabledEl.checked = s.quiet_enabled !== 0;
+    startEl.value = s.quiet_start;
+    endEl.value   = s.quiet_end;
+    rangeEl.style.display = enabledEl.checked ? 'block' : 'none';
+  } catch { rangeEl.style.display = 'block'; }
+
+  enabledEl.addEventListener('change', function () {
+    rangeEl.style.display = this.checked ? 'block' : 'none';
+  });
+
+  document.getElementById('quiet-save-web').addEventListener('click', async () => {
+    const msgEl = document.getElementById('quiet-msg-web');
+    try {
+      await api('PATCH', '/settings', {
+        quiet_enabled: enabledEl.checked,
+        quiet_start:   parseInt(startEl.value, 10),
+        quiet_end:     parseInt(endEl.value, 10),
+      });
+      msgEl.textContent = 'Saved.';
+      msgEl.style.color = 'var(--success)';
+    } catch (err) {
+      msgEl.textContent = err.message;
+      msgEl.style.color = 'var(--danger)';
+    }
+  });
 }
 
 init();

@@ -77,6 +77,16 @@ db.exec(`
     hour_reset   TEXT NOT NULL,
     day_reset    TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS user_settings (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL UNIQUE,
+    quiet_enabled INTEGER NOT NULL DEFAULT 1,
+    quiet_start   INTEGER NOT NULL DEFAULT 23,
+    quiet_end     INTEGER NOT NULL DEFAULT 7,
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
 `);
 
 // Add columns to existing databases (idempotent)
@@ -208,6 +218,18 @@ const stmts = {
   getTasksWithoutEmbedding: db.prepare(
     'SELECT id, title, description FROM tasks WHERE embedding IS NULL'
   ),
+
+  // User settings
+  getSettings: db.prepare('SELECT * FROM user_settings WHERE user_id = ?'),
+  upsertSettings: db.prepare(`
+    INSERT INTO user_settings (user_id, quiet_enabled, quiet_start, quiet_end)
+    VALUES (@userId, @quietEnabled, @quietStart, @quietEnd)
+    ON CONFLICT(user_id) DO UPDATE SET
+      quiet_enabled = @quietEnabled,
+      quiet_start   = @quietStart,
+      quiet_end     = @quietEnd,
+      updated_at    = datetime('now')
+  `),
 
   // Telegram rate limits
   getRateLimit: db.prepare(

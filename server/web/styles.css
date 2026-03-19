@@ -368,6 +368,21 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
 .pp3 { background: var(--p3); }
 .pp4 { background: var(--p4); }
 
+.priority-select {
+  appearance: none;
+  border: none;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+  white-space: nowrap;
+  color: #fff;
+  flex-shrink: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.priority-select.pp2 { color: #000; }
+
 /* ── Card Header ──────────────────────────────────────────────────────────── */
 
 .card-header {
@@ -637,6 +652,26 @@ html.light .tag-chip { background: #e8f0fe; color: var(--accent); }
 
 .sidebar-section { margin-bottom: 20px; }
 .sidebar-section:last-child { margin-bottom: 0; }
+
+.sidebar-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-bottom: 3px;
+}
+
+.sidebar-select {
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+input[type="checkbox"] { accent-color: var(--accent); }
 
 .sidebar-heading {
   font-size: 11px;

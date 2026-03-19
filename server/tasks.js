@@ -79,6 +79,12 @@ function deleteTask(id, userId) {
   return info.changes > 0;
 }
 
+function changePriority(task, newPriority) {
+  const nextReminder = calcNextReminder(newPriority, task.checkin_count);
+  stmts.updateTaskPriority.run({ id: task.id, priority: newPriority, nextReminder });
+  return stmts.getTaskById.get(task.id);
+}
+
 function updateTaskContent(task, { title, description, dueDate }) {
   stmts.updateTaskContent.run({
     id: task.id,
@@ -147,6 +153,7 @@ module.exports = {
   completeTask,
   snoozeTask,
   deleteTask,
+  changePriority,
   updateTaskContent,
   getEscalatedPriority,
   escalateAllDueTasks,

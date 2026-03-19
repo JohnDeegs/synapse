@@ -99,6 +99,25 @@
               <!-- rendered by JS -->
             </div>
           </div>
+
+          <div class="sidebar-section">
+            <h3 class="sidebar-heading">Quiet Hours</h3>
+            <p style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:10px;line-height:1.4;">
+              Pauses check-in reminders during sleep. Tasks due overnight reschedule to wake-up time.
+            </p>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;cursor:pointer;">
+              <input type="checkbox" id="quiet-enabled-web" />
+              Enable quiet hours
+            </label>
+            <div id="quiet-range-web" style="margin-top:10px;">
+              <label for="quiet-start-web" class="sidebar-label">From</label>
+              <select id="quiet-start-web" class="sidebar-select"></select>
+              <label for="quiet-end-web" class="sidebar-label" style="margin-top:8px;">Until</label>
+              <select id="quiet-end-web" class="sidebar-select"></select>
+            </div>
+            <button id="quiet-save-web" class="btn-secondary" style="margin-top:10px;width:100%;">Save</button>
+            <div id="quiet-msg-web" style="font-size:0.8rem;margin-top:6px;min-height:1em;"></div>
+          </div>
         </aside>
 
         <!-- Main Content -->
