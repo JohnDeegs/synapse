@@ -157,7 +157,7 @@
               <option value="P3">P3 – Low (every 3 days)</option>
               <option value="P4">P4 – Future (weekly)</option>
             </select>
-            <input type="date" id="new-due-date" placeholder="Due date (optional)">
+            <button type="button" id="new-due-date-btn" class="dp-trigger">📅 Loading…</button>
             <textarea id="new-desc" placeholder="Description (Markdown supported)" rows="3"></textarea>
             <div id="create-error" class="error-msg"></div>
             <div class="form-actions">
@@ -179,6 +179,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
+  <script src="/web/datepicker.js"></script>
   <script src="/web/app.js"></script>
 </body>
 </html>

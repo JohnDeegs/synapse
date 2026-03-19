@@ -62,8 +62,6 @@ function renderTasks(tasks) {
     card.dataset.id = task.id;
 
     const countdown = formatCountdown(new Date(task.next_reminder).getTime());
-    const dueLabel = task.due_date ? `📅 ${task.due_date}` : '+ Due date';
-    const dueClass = task.due_date ? 'task-due' : 'task-due no-due';
 
     card.innerHTML = `
       <div class="task-header">
@@ -71,12 +69,7 @@ function renderTasks(tasks) {
         <span class="task-title">${escHtml(task.title)}</span>
       </div>
       <div class="task-countdown${countdown.overdue ? ' overdue' : ''}">${countdown.text}</div>
-      <div class="${dueClass}">${dueLabel}</div>
-      <div class="due-edit-row" style="display:none">
-        <input type="date" class="due-date-input" value="${task.due_date || ''}" />
-        <button class="btn-due-save">Save</button>
-        <button class="btn-due-clear">Clear</button>
-      </div>
+      <button type="button" class="task-due-btn">${task.due_date ? `📅 ${task.due_date}` : '📅 Set due date'}</button>
       <div class="task-actions">
         <button class="btn-checkin">Check-in</button>
         <button class="btn-complete">Complete</button>
@@ -95,18 +88,12 @@ function renderTasks(tasks) {
       </div>
     `;
 
-    // Due date: toggle edit row
-    card.querySelector('.task-due').addEventListener('click', () => {
-      const row = card.querySelector('.due-edit-row');
-      row.style.display = row.style.display === 'none' ? 'flex' : 'none';
-    });
-    card.querySelector('.btn-due-save').addEventListener('click', () => {
-      const val = card.querySelector('.due-date-input').value || null;
-      patchTask(task.id, { action: 'update', title: task.title, description: task.description, due_date: val });
-    });
-    card.querySelector('.btn-due-clear').addEventListener('click', () => {
-      patchTask(task.id, { action: 'update', title: task.title, description: task.description, due_date: null });
-    });
+    // Due date picker
+    const dueBtn = card.querySelector('.task-due-btn');
+    new DatePicker(dueBtn, date => {
+      dueBtn.textContent = date ? `📅 ${date}` : '📅 Set due date';
+      patchTask(task.id, { action: 'update', title: task.title, description: task.description, due_date: date });
+    }, task.due_date);
 
     // Check-in: toggle note input
     card.querySelector('.btn-checkin').addEventListener('click', () => {
@@ -219,7 +206,6 @@ async function addTask(title, priority, description, dueDate) {
     document.getElementById('new-title').value = '';
     document.getElementById('new-desc').value = '';
     document.getElementById('new-priority').value = 'P2';
-    document.getElementById('new-due-date').value = '';
     await loadTasks();
   } catch (err) {
     errEl.textContent = 'Network error. Is the server running?';
@@ -242,13 +228,21 @@ chrome.storage.local.get(['token', 'apiBase'], data => {
 
   document.getElementById('main').style.display = 'block';
 
+  // Init due date picker for add form, defaulting to today
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const addDueBtn = document.getElementById('new-due-date-btn');
+  const addTaskDP = new DatePicker(addDueBtn, date => {
+    addDueBtn.textContent = date ? `📅 ${date}` : '📅 Set due date';
+  }, todayStr);
+  addDueBtn.textContent = `📅 ${todayStr}`;
+
   // Quick-add form submit
   document.getElementById('add-form').addEventListener('submit', e => {
     e.preventDefault();
     const title = document.getElementById('new-title').value.trim();
     const priority = document.getElementById('new-priority').value;
     const description = document.getElementById('new-desc').value.trim();
-    const dueDate = document.getElementById('new-due-date').value || null;
+    const dueDate = addTaskDP.value;
     if (title) addTask(title, priority, description, dueDate);
   });
 

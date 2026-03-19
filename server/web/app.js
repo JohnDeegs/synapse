@@ -12,6 +12,7 @@ let filterDue    = 'all'; // 'all' | 'today' | 'week' | 'month'
 let selectedTaskIds = new Set();
 let countdownTimer = null;
 let newTaskMDE = null; // EasyMDE instance for the new-task form (lazy-init)
+let newTaskDP  = null; // DatePicker instance for the new-task form (lazy-init)
 
 // ── Theme ──────────────────────────────────────────────────────────────────────
 function initTheme() {
@@ -396,10 +397,10 @@ function renderCard(task) {
     <button class="btn-action btn-snooze">⏰ Snooze 1h</button>
   ` : '';
 
-  const dueHtml = task.due_date
-    ? `<span class="task-due${isActive ? ' editable' : ''}" title="${isActive ? 'Click to change' : ''}">📅 ${task.due_date}</span>`
-    : isActive
-      ? `<span class="task-due no-due editable" title="Click to set due date">+ Due date</span>`
+  const dueHtml = isActive
+    ? `<button type="button" class="task-due-btn">${task.due_date ? `📅 ${task.due_date}` : '📅 Set due date'}</button>`
+    : task.due_date
+      ? `<span class="task-due">📅 ${task.due_date}</span>`
       : '';
 
   el.innerHTML = `
@@ -482,33 +483,16 @@ function renderCard(task) {
     });
   }
 
-  // ── Inline editing: due date ─────────────────────────────────────────
+  // ── Due date picker ───────────────────────────────────────────────────
   if (isActive) {
-    const dueEl = el.querySelector('.task-due');
-    if (dueEl) {
-      dueEl.addEventListener('click', () => {
-        const input = document.createElement('input');
-        input.type = 'date';
-        input.value = task.due_date || '';
-        input.className = 'due-date-input';
-        const save = async () => {
-          const newDate = input.value || null;
-          if (newDate !== (task.due_date || null)) {
-            try {
-              await patchTask(task.id, { action: 'update', title: task.title, description: task.description, due_date: newDate });
-            } catch (err) { alert('Failed: ' + err.message); renderTasks(); }
-          } else {
-            renderTasks();
-          }
-        };
-        dueEl.replaceWith(input);
-        input.focus();
-        input.addEventListener('blur', save);
-        input.addEventListener('keydown', e => {
-          if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-          if (e.key === 'Escape') renderTasks();
-        });
-      });
+    const dueBtn = el.querySelector('.task-due-btn');
+    if (dueBtn) {
+      new DatePicker(dueBtn, async date => {
+        dueBtn.textContent = date ? `📅 ${date}` : '📅 Set due date';
+        try {
+          await patchTask(task.id, { action: 'update', title: task.title, description: task.description, due_date: date });
+        } catch (err) { alert('Failed: ' + err.message); renderTasks(); }
+      }, task.due_date);
     }
   }
 
@@ -776,6 +760,14 @@ function init() {
       if (!newTaskMDE) {
         newTaskMDE = makeMDE(document.getElementById('new-desc'), { minHeight: '120px' });
       }
+      if (!newTaskDP) {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const btn = document.getElementById('new-due-date-btn');
+        newTaskDP = new DatePicker(btn, date => {
+          btn.textContent = date ? `📅 ${date}` : '📅 Set due date';
+        }, todayStr);
+        btn.textContent = `📅 ${todayStr}`;
+      }
       document.getElementById('new-title').focus();
     }
   });
@@ -788,7 +780,7 @@ function init() {
     const title = document.getElementById('new-title').value.trim();
     const priority = document.getElementById('new-priority').value;
     const description = newTaskMDE ? newTaskMDE.value().trim() : '';
-    const dueDate = document.getElementById('new-due-date').value || null;
+    const dueDate = newTaskDP ? newTaskDP.value : null;
     const errEl = document.getElementById('create-error');
     errEl.textContent = '';
     if (!title) { errEl.textContent = 'Title is required.'; return; }
@@ -796,7 +788,11 @@ function init() {
       await createTask(title, priority, description, dueDate);
       document.getElementById('new-title').value = '';
       document.getElementById('new-priority').value = 'P2';
-      document.getElementById('new-due-date').value = '';
+      if (newTaskDP) {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        newTaskDP.setValue(todayStr);
+        document.getElementById('new-due-date-btn').textContent = `📅 ${todayStr}`;
+      }
       if (newTaskMDE) newTaskMDE.value('');
       document.getElementById('new-task-form').classList.add('hidden');
     } catch (err) { errEl.textContent = err.message; }
