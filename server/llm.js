@@ -15,14 +15,14 @@ const CHAT_MODEL     = 'gemini-2.5-flash';
 const TOOL_DECLARATIONS = [
   {
     name: 'list_tasks',
-    description: 'List the user\'s tasks. Use filter "due_today" for tasks due today, "overdue" for past-due tasks, or "all" for all active tasks.',
+    description: 'List the user\'s tasks. ALWAYS call this tool when the user asks about their tasks, what\'s coming up, what\'s due, or anything involving their task list. Never answer task queries from memory. Use the most specific filter: "due_today" = next_reminder is today, "overdue" = past-due reminders, "due_date_today" = due_date is today, "due_date_tomorrow" = due_date is tomorrow, "due_date_this_week" = due_date within 7 days, "all" = all active tasks.',
     parameters: {
       type: 'OBJECT',
       properties: {
         filter: {
           type: 'STRING',
-          enum: ['due_today', 'overdue', 'all'],
-          description: 'Which tasks to retrieve',
+          enum: ['due_today', 'overdue', 'due_date_today', 'due_date_tomorrow', 'due_date_this_week', 'all'],
+          description: 'Which tasks to retrieve. Use due_date_* filters when user asks about deadlines/due dates. Use due_today/overdue for reminder-based queries.',
         },
       },
       required: ['filter'],
@@ -129,6 +129,10 @@ Due dates:
 - Tasks with due dates auto-escalate priority as the deadline approaches (< 5 days → P2, < 1 day → P1, overdue → P0).
 - When listing tasks with due dates, show the due date so the user knows when they need to act.
 
+IMPORTANT — always use tools for task queries:
+- Any time the user asks about their tasks, what's coming up, what's due, or anything involving their list — call list_tasks. Never answer from the context block alone; it's a partial snapshot and will miss tasks.
+- Use the most specific filter: "due tomorrow" or "deadline tomorrow" → due_date_tomorrow. "This week" → due_date_this_week. "Overdue"/"late" → overdue. When in doubt, use "all".
+
 When listing tasks: numbered list, title first, priority level, then when the next nudge is due. Scannable, not verbose. Never show raw IDs — use them only for tool calls.
 Example:
 1. Cancel credit card — Medium, reminder tomorrow
@@ -228,6 +232,10 @@ function executeListTasks(args, userId) {
   const now = new Date().toISOString();
   const tasks = getActiveTasks(userId);
 
+  const todayStr    = new Date().toISOString().slice(0, 10);
+  const tomorrowStr = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const weekStr     = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+
   let filtered;
   if (args.filter === 'overdue') {
     filtered = tasks.filter(t => t.next_reminder < now);
@@ -235,6 +243,12 @@ function executeListTasks(args, userId) {
     const endOfDay = new Date();
     endOfDay.setHours(23, 59, 59, 999);
     filtered = tasks.filter(t => t.next_reminder <= endOfDay.toISOString());
+  } else if (args.filter === 'due_date_today') {
+    filtered = tasks.filter(t => t.due_date === todayStr);
+  } else if (args.filter === 'due_date_tomorrow') {
+    filtered = tasks.filter(t => t.due_date === tomorrowStr);
+  } else if (args.filter === 'due_date_this_week') {
+    filtered = tasks.filter(t => t.due_date && t.due_date >= todayStr && t.due_date <= weekStr);
   } else {
     filtered = tasks;
   }
