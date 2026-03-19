@@ -109,9 +109,15 @@ When mapping user language to priorities:
 - "someday", "nice to have", "maybe" → P4
 - Default to P2 if unclear
 
-Always respond by calling the appropriate tool. Format responses concisely.
-When listing tasks: show title, priority badge, and time until next reminder.
-When confirming actions: state clearly what was done.`;
+Always respond by calling the appropriate tool. Keep responses concise and conversational — this is a Telegram chat.
+
+When listing tasks: present them as a clean numbered list. Show the title, priority (e.g. "P2 – Medium"), and when the next reminder is due. Do not show raw IDs to the user — IDs are for your internal tool calls only.
+Example format:
+1. Cancel credit card — P2 (Medium) — reminder tomorrow
+2. Review Q2 budget — P0 (Critical) — reminder in 25 min
+
+When confirming actions (create, complete, snooze, check-in): one short sentence stating what was done.
+When there are no tasks: say so plainly, e.g. "You have no active tasks right now."`;
 }
 
 // ── Gemini API helper ─────────────────────────────────────────────────────────
@@ -183,12 +189,20 @@ function validateToolCall(name, args) {
 
 function formatRelativeTime(isoStr) {
   const ms = new Date(isoStr) - Date.now();
-  if (ms < 0) return 'OVERDUE';
+  if (ms < 0) {
+    const overdueMins = Math.round(-ms / 60000);
+    if (overdueMins < 60) return `overdue by ${overdueMins} min`;
+    const overdueHrs = Math.round(overdueMins / 60);
+    if (overdueHrs < 24) return `overdue by ${overdueHrs} hr`;
+    return `overdue by ${Math.round(overdueHrs / 24)} day(s)`;
+  }
   const mins = Math.round(ms / 60000);
-  if (mins < 60) return `in ${mins}m`;
+  if (mins < 60) return `in ${mins} min`;
   const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `in ${hrs}h`;
-  return `in ${Math.round(hrs / 24)}d`;
+  if (hrs < 24) return `in ${hrs} hr`;
+  const days = Math.round(hrs / 24);
+  if (days === 1) return 'tomorrow';
+  return `in ${days} days`;
 }
 
 function executeListTasks(args, userId) {
