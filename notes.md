@@ -482,6 +482,53 @@ A `Dockerfile` bypasses all auto-detection and works — but it means you own th
 
 ---
 
+## Phase 13: V2 Deployment
+
+### What Was Built
+
+1. **`web/` moved into `server/web/`** — Railway's service root is `server/`, so files outside it are never deployed. Moving the folder and updating `WEB_DIR` from `path.resolve(__dirname, '..', 'web')` to `path.resolve(__dirname, 'web')` was the entire fix.
+2. **`GET /telegram/connect`** — returns `{ connected: bool }` so the web dashboard can show connected state on load
+3. **`DELETE /telegram/connect`** — JWT-authenticated disconnect endpoint; removes the `telegram_links` row for the user
+4. **Telegram Settings UI** — added to the sidebar: "Connect Telegram" button → code display with live 5-min countdown → "Telegram connected ✓" state with disconnect button
+5. **`/connect` upsert fix** — changed from "delete link for user, insert" to "delete link for user AND for chat_id, insert". Needed in both `server.js` AND `telegram.js`.
+6. **`deleteTelegramLinkByChatId` prepared statement** added to `db.js`
+7. **Readable task formatting** — `formatRelativeTime` now returns "tomorrow", "in 3 days", "overdue by 2 hr" instead of "in 1d"
+8. **System prompt tuned** — three iterations to land on a warm PA tone that reads the room
+
+---
+
+### What Went Well
+
+- **Moving `web/` was the only thing needed to fix Railway deployment.** One path change in server.js and a folder rename. The static serving logic was already correct.
+- **`GET /telegram/connect` + `DELETE /telegram/connect` were straightforward additions.** The prepared statements already existed in db.js — just needed the route handlers and routes.
+- **The Telegram Settings UI rendered correctly on first try.** The `telegramCountdownTimer` pattern (separate from the main task countdown) was clean and the `renderTelegramSettings()` function handled all three states (disconnected, code pending, connected) without needing extra DOM.
+- **The pre-commit hook caught a real risk.** Even though no keys were in git, adding the hook is the right defensive habit — it would have blocked an accidental paste of a real key into `.env.example`.
+
+---
+
+### What Didn't Go Well
+
+- **The `/connect` fix had to be applied twice.** `server.js` has `handleTelegramConnect` for the HTTP endpoint, and `telegram.js` has the same logic inlined for the bot command. Patching only `server.js` first left the bot still broken. Any time connect logic is duplicated across files, both must be updated together.
+- **The Gemini API key was flagged as leaked — not from git.** Git history was clean (only placeholder text in `.env.example`, real `.env` was gitignored). The leak came from another channel (likely a paste or chat). Had to rotate the key.
+- **The new API key hit the free tier limit (20 req/day for gemini-2.5-flash) almost immediately during smoke testing.** Didn't anticipate that smoke testing itself would burn the daily quota. Enable billing before running any multi-step test sequence on production.
+- **System prompt needed three iterations to get the right tone.** "Concise" → still robotic. Adding "no filler phrases" → still cold. Reframing as "trusted PA who's got your back" → correct. The framing of the persona matters more than a list of rules.
+
+---
+
+### What I Wish I Knew Before Starting
+
+1. **When the same logic exists in two files, fix both at once.** The connect logic lives in both `server.js` (for the HTTP endpoint) and `telegram.js` (for the bot command handler). This isn't obvious from reading either file in isolation. When you touch shared logic, search the codebase for duplicate implementations before shipping.
+
+2. **Enable billing on the Gemini API key before smoke testing production.** The free tier for `gemini-2.5-flash` is 20 requests/day. A multi-step smoke test will hit this in minutes. Set up billing first, then set a Google Cloud quota cap (e.g. 500 req/day) as a hard safety net. Budget alerts send emails but don't stop billing — quota caps are the actual safeguard.
+
+3. **A leaked API key is not necessarily a git problem.** Check git history first (`git log --all -S "AIza" --oneline`), but if it's clean, the leak came from somewhere else. Rotating is the only fix regardless of source. The pre-commit hook prevents the git vector specifically.
+
+4. **LLM persona framing beats rule lists.** Telling the model "you are a trusted PA who has the user's back, you read the room" produces better tone than listing prohibited phrases. Rules constrain; persona shapes.
+
+5. **Railway redeploys take ~2 minutes.** Don't test immediately after a push — wait for the deploy to complete. Checking logs for "Synapse server listening" confirms the new version is live.
+
+---
+
 ## Phase Completion Status
 
 | Phase | Description | Status |
@@ -498,3 +545,4 @@ A `Dockerfile` bypasses all auto-detection and works — but it means you own th
 | 10 | Backend: Telegram Auth & Rate Limiting | Done |
 | 11 | Telegram Bot: Webhook & Basic Commands | Done |
 | 12 | LLM Integration: Gemini + Tool Calling | Done |
+| 13 | V2 Deployment | Done |
