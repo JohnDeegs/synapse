@@ -117,6 +117,7 @@ const stmts = {
   updateTask: db.prepare(`
     UPDATE tasks
     SET status = @status,
+        priority = @priority,
         checkin_count = @checkinCount,
         next_reminder = @nextReminder
     WHERE id = @id

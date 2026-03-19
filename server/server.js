@@ -177,7 +177,10 @@ async function handlePatchTask(req, res, user, id) {
     return send(res, 200, updated);
   }
   if (action === 'checkin') {
-    const updated = checkinTask(task, note || '');
+    if (body.priority !== undefined && !['P0','P1','P2','P3','P4'].includes(body.priority)) {
+      return send(res, 400, { error: 'priority must be P0, P1, P2, P3, or P4' });
+    }
+    const updated = checkinTask(task, note || '', body.priority || null);
     return send(res, 200, updated);
   }
   if (action === 'complete') {

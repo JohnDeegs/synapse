@@ -36,13 +36,15 @@ function getTaskById(id) {
   return stmts.getTaskById.get(id);
 }
 
-function checkinTask(task, note = '') {
+function checkinTask(task, note = '', priority = null) {
   stmts.addCheckin.run(task.id, note);
   const newCount = task.checkin_count + 1;
-  const nextReminder = calcNextReminder(task.priority, newCount);
+  const newPriority = priority || task.priority;
+  const nextReminder = calcNextReminder(newPriority, newCount);
   stmts.updateTask.run({
     id: task.id,
     status: task.status,
+    priority: newPriority,
     checkinCount: newCount,
     nextReminder,
   });
@@ -53,6 +55,7 @@ function completeTask(task) {
   stmts.updateTask.run({
     id: task.id,
     status: 'completed',
+    priority: task.priority,
     checkinCount: task.checkin_count,
     nextReminder: task.next_reminder,
   });
@@ -64,6 +67,7 @@ function snoozeTask(task, minutes) {
   stmts.updateTask.run({
     id: task.id,
     status: 'active',
+    priority: task.priority,
     checkinCount: task.checkin_count,
     nextReminder,
   });

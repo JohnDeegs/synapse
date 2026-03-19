@@ -51,6 +51,13 @@ function renderTasks(tasks) {
         <button class="btn-snooze">Snooze 1hr</button>
       </div>
       <div class="checkin-row" style="display:none">
+        <select class="checkin-priority">
+          <option value="P0">P0</option>
+          <option value="P1">P1</option>
+          <option value="P2">P2</option>
+          <option value="P3">P3</option>
+          <option value="P4">P4</option>
+        </select>
         <input type="text" class="checkin-note" placeholder="Note (optional)" />
         <button class="btn-checkin-submit">OK</button>
       </div>
@@ -61,13 +68,17 @@ function renderTasks(tasks) {
       const row = card.querySelector('.checkin-row');
       const visible = row.style.display !== 'none';
       row.style.display = visible ? 'none' : 'flex';
-      if (!visible) card.querySelector('.checkin-note').focus();
+      if (!visible) {
+        card.querySelector('.checkin-priority').value = task.priority;
+        card.querySelector('.checkin-note').focus();
+      }
     });
 
     // Submit check-in
     card.querySelector('.btn-checkin-submit').addEventListener('click', () => {
       const note = card.querySelector('.checkin-note').value.trim();
-      patchTask(task.id, { action: 'checkin', note });
+      const priority = card.querySelector('.checkin-priority').value;
+      patchTask(task.id, { action: 'checkin', note, priority });
     });
 
     // Allow Enter in checkin note to submit
@@ -75,7 +86,8 @@ function renderTasks(tasks) {
       if (e.key === 'Enter') {
         e.preventDefault();
         const note = card.querySelector('.checkin-note').value.trim();
-        patchTask(task.id, { action: 'checkin', note });
+        const priority = card.querySelector('.checkin-priority').value;
+        patchTask(task.id, { action: 'checkin', note, priority });
       }
     });
 
