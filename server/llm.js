@@ -134,11 +134,12 @@ function geminiGenerateContent(body) {
     const data = JSON.stringify(body);
     const options = {
       hostname: 'generativelanguage.googleapis.com',
-      path: `/v1beta/models/${CHAT_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      path: `/v1beta/models/${CHAT_MODEL}:generateContent`,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(data),
+        'x-goog-api-key': GEMINI_API_KEY,
       },
     };
     const req = https.request(options, res => {

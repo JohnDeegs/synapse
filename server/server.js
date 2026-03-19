@@ -22,6 +22,21 @@ const CONTENT_TYPES = {
   '.json': 'application/json',
 };
 
+// ── Auth rate limiter ─────────────────────────────────────────────────────────
+// Simple in-memory sliding window: max 10 attempts per IP per 15 minutes.
+
+const authAttempts = new Map();
+const AUTH_WINDOW_MS   = 15 * 60 * 1000;
+const AUTH_MAX_ATTEMPTS = 10;
+
+function checkAuthRateLimit(ip) {
+  const now  = Date.now();
+  const prev = (authAttempts.get(ip) || []).filter(t => now - t < AUTH_WINDOW_MS);
+  if (prev.length >= AUTH_MAX_ATTEMPTS) return false;
+  authAttempts.set(ip, [...prev, now]);
+  return true;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function readBody(req) {
@@ -64,11 +79,18 @@ function authenticate(req) {
 // ── Route handlers ────────────────────────────────────────────────────────────
 
 async function handleRegister(req, res) {
+  if (!checkAuthRateLimit(req.socket.remoteAddress)) {
+    return send(res, 429, { error: 'Too many attempts. Try again later.' });
+  }
+
   let body;
   try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
 
   const { email, password } = body;
   if (!email || !password) return send(res, 400, { error: 'email and password required' });
+  if (typeof email !== 'string' || email.length > 254) return send(res, 400, { error: 'invalid email' });
+  if (typeof password !== 'string' || password.length < 8) return send(res, 400, { error: 'password must be at least 8 characters' });
+  if (password.length > 72) return send(res, 400, { error: 'password too long' });
 
   const existing = stmts.findUserByEmail.get(email);
   if (existing) return send(res, 409, { error: 'Email already registered' });
@@ -80,11 +102,17 @@ async function handleRegister(req, res) {
 }
 
 async function handleLogin(req, res) {
+  if (!checkAuthRateLimit(req.socket.remoteAddress)) {
+    return send(res, 429, { error: 'Too many attempts. Try again later.' });
+  }
+
   let body;
   try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
 
   const { email, password } = body;
   if (!email || !password) return send(res, 400, { error: 'email and password required' });
+  if (typeof email !== 'string' || email.length > 254) return send(res, 400, { error: 'invalid email' });
+  if (typeof password !== 'string' || password.length > 72) return send(res, 400, { error: 'Invalid credentials' });
 
   const user = stmts.findUserByEmail.get(email);
   if (!user || !verifyPassword(password, user.password_hash)) {
@@ -118,6 +146,8 @@ async function handleCreateTask(req, res, user) {
   const { title, priority, description } = body;
   if (!title || !priority) return send(res, 400, { error: 'title and priority required' });
   if (!['P0','P1','P2','P3','P4'].includes(priority)) return send(res, 400, { error: 'priority must be P0–P4' });
+  if (typeof title !== 'string' || title.length > 500) return send(res, 400, { error: 'title too long (max 500 chars)' });
+  if (description !== undefined && (typeof description !== 'string' || description.length > 10000)) return send(res, 400, { error: 'description too long (max 10000 chars)' });
 
   const task = createTask({ userId: user.userId, title, priority, description });
   updateTaskEmbedding(task).catch(() => {}); // fire-and-forget
@@ -136,6 +166,8 @@ async function handlePatchTask(req, res, user, id) {
 
   if (action === 'update') {
     if (body.title === undefined && body.description === undefined) return send(res, 400, { error: 'title or description required' });
+    if (body.title !== undefined && (typeof body.title !== 'string' || body.title.length > 500)) return send(res, 400, { error: 'title too long (max 500 chars)' });
+    if (body.description !== undefined && (typeof body.description !== 'string' || body.description.length > 10000)) return send(res, 400, { error: 'description too long (max 10000 chars)' });
     const updated = updateTaskContent(task, { title: body.title, description: body.description });
     updateTaskEmbedding(updated).catch(() => {}); // fire-and-forget
     return send(res, 200, updated);
@@ -251,7 +283,7 @@ async function handleRemoveTag(req, res, user, taskId, tagId) {
 const CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 function generateCode() {
-  const bytes = crypto.randomBytes(6);
+  const bytes = crypto.randomBytes(8);
   return Array.from(bytes).map(b => CODE_CHARS[b % CODE_CHARS.length]).join('');
 }
 

@@ -22,11 +22,12 @@ function getEmbedding(text) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: 'generativelanguage.googleapis.com',
-      path: `/v1beta/models/${EMBEDDING_MODEL}:embedContent?key=${GEMINI_API_KEY}`,
+      path: `/v1beta/models/${EMBEDDING_MODEL}:embedContent`,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body),
+        'x-goog-api-key': GEMINI_API_KEY,
       },
     };
 

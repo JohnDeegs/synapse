@@ -96,6 +96,13 @@ async function handleUpdate(update) {
 
   // /connect <code>
   if (text.startsWith('/connect')) {
+    const rateResult = checkRateLimit(chatId);
+    if (!rateResult.allowed) {
+      return sendMessage(chatId,
+        `Too many attempts. Please try again ${rateResult.retryAfter}.`
+      );
+    }
+
     const parts = text.split(/\s+/);
     const code  = (parts[1] || '').toUpperCase();
 
