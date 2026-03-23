@@ -485,11 +485,6 @@ function renderCard(task) {
   if (isActive) {
     const titleEl = el.querySelector('.task-title');
 
-    // Clicking the title opens the check-in area by default
-    titleEl.addEventListener('click', () => {
-      el.querySelector('.btn-checkin')?.click();
-    });
-
     // The ✎ button opens the inline title editor
     el.querySelector('.btn-edit-title')?.addEventListener('click', e => {
       e.stopPropagation();
@@ -614,6 +609,14 @@ function renderCard(task) {
   el.querySelector('.btn-checkin')?.addEventListener('click', () => {
     checkinArea.classList.contains('hidden') ? openCheckin() : closeCheckin();
   });
+
+  // Clicking anywhere on the card that isn't already interactive opens check-in
+  if (isActive) {
+    el.addEventListener('click', e => {
+      if (e.target.closest('button, select, input, textarea, a, label, .checkin-area, .checkin-history')) return;
+      openCheckin();
+    });
+  }
 
   el.querySelector('.checkin-priority-select')?.addEventListener('change', function () {
     this.className = `checkin-priority-select pp${this.value.toLowerCase()}`;
