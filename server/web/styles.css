@@ -598,7 +598,8 @@ html.light .tag-chip { background: #e8f0fe; color: var(--accent); }
 .checkin-priority-select.pp3 { background: var(--p3); color: #fff; }
 .checkin-priority-select.pp4 { background: var(--p4); color: #fff; }
 
-.btn-edit-title {
+.btn-edit-title,
+.btn-edit-desc {
   background: none;
   border: none;
   cursor: pointer;
@@ -610,6 +611,7 @@ html.light .tag-chip { background: #e8f0fe; color: var(--accent); }
   flex-shrink: 0;
 }
 .card-header:hover .btn-edit-title { opacity: 1; }
+.desc-view:hover .btn-edit-desc { opacity: 1; }
 
 .priority-select:disabled { opacity: 0.4; cursor: not-allowed; }
 

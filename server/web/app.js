@@ -438,7 +438,10 @@ function renderCard(task) {
       <span class="task-status-badge">${task.status}</span>
     </div>
     <div class="card-desc">
-      <div class="desc-view">${descHtml}</div>
+      <div class="desc-view">
+        ${descHtml}
+        ${isActive ? `<button class="btn-edit-desc" title="Edit description">✎</button>` : ''}
+      </div>
       <div class="desc-editor-wrapper hidden">
         <textarea class="desc-edit-input"></textarea>
         <div class="desc-editor-actions">
@@ -564,7 +567,7 @@ function renderCard(task) {
       descView.classList.remove('hidden');
     };
 
-    descView.addEventListener('click', openEditor);
+    el.querySelector('.btn-edit-desc')?.addEventListener('click', openEditor);
 
     el.querySelector('.btn-save-desc').addEventListener('click', async () => {
       const newDesc = mde ? mde.value() : descTextarea.value;
