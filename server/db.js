@@ -87,12 +87,21 @@ db.exec(`
     updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
+
+  CREATE TABLE IF NOT EXISTS daily_health (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date    TEXT NOT NULL,
+    status  TEXT NOT NULL DEFAULT 'green' CHECK(status IN ('green','red')),
+    UNIQUE(user_id, date)
+  );
 `);
 
 // Add columns to existing databases (idempotent)
 for (const ddl of [
   'ALTER TABLE tasks ADD COLUMN embedding TEXT',
   'ALTER TABLE tasks ADD COLUMN due_date TEXT',
+  'ALTER TABLE tags ADD COLUMN weekday_only INTEGER NOT NULL DEFAULT 0',
 ]) {
   try { db.exec(ddl); } catch (e) {
     if (!e.message.includes('duplicate column name')) throw e;
@@ -156,13 +165,16 @@ const stmts = {
 
   // Tags
   createTag: db.prepare(
-    'INSERT INTO tags (user_id, name) VALUES (?, ?) RETURNING id, name'
+    'INSERT INTO tags (user_id, name) VALUES (?, ?) RETURNING id, name, weekday_only'
   ),
   getTagsByUser: db.prepare(
-    'SELECT id, name FROM tags WHERE user_id = ? ORDER BY name ASC'
+    'SELECT id, name, weekday_only FROM tags WHERE user_id = ? ORDER BY name ASC'
   ),
   getTagById: db.prepare(
     'SELECT * FROM tags WHERE id = ?'
+  ),
+  updateTagWeekdayOnly: db.prepare(
+    'UPDATE tags SET weekday_only = ? WHERE id = ? AND user_id = ?'
   ),
   assignTag: db.prepare(
     'INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?, ?)'
@@ -171,10 +183,10 @@ const stmts = {
     'DELETE FROM task_tags WHERE task_id = ? AND tag_id = ?'
   ),
   getTagsForTask: db.prepare(
-    'SELECT t.id, t.name FROM tags t JOIN task_tags tt ON tt.tag_id = t.id WHERE tt.task_id = ?'
+    'SELECT t.id, t.name, t.weekday_only FROM tags t JOIN task_tags tt ON tt.tag_id = t.id WHERE tt.task_id = ?'
   ),
   getTagsByUserForTasks: db.prepare(
-    'SELECT tt.task_id, t.id, t.name FROM task_tags tt JOIN tags t ON t.id = tt.tag_id JOIN tasks tk ON tk.id = tt.task_id WHERE tk.user_id = ?'
+    'SELECT tt.task_id, t.id, t.name, t.weekday_only FROM task_tags tt JOIN tags t ON t.id = tt.tag_id JOIN tasks tk ON tk.id = tt.task_id WHERE tk.user_id = ?'
   ),
 
   // Telegram codes
@@ -218,6 +230,16 @@ const stmts = {
   getTasksWithoutEmbedding: db.prepare(
     'SELECT id, title, description FROM tasks WHERE embedding IS NULL'
   ),
+
+  // Daily health (gamification)
+  upsertDailyHealth: db.prepare(`
+    INSERT INTO daily_health (user_id, date, status) VALUES (@userId, @date, @status)
+    ON CONFLICT(user_id, date) DO UPDATE SET status = @status
+  `),
+  getDailyHealth: db.prepare(
+    'SELECT date, status FROM daily_health WHERE user_id = ? AND date >= ? ORDER BY date ASC'
+  ),
+  getAllUserIds: db.prepare('SELECT id FROM users'),
 
   // User settings
   getSettings: db.prepare('SELECT * FROM user_settings WHERE user_id = ?'),

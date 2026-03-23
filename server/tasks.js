@@ -11,14 +11,59 @@ const BASE_INTERVALS = {
 };
 
 /**
+ * Advance fromMs by durationMs worth of weekday-only time,
+ * skipping Saturday (day 6) and Sunday (day 0).
+ */
+function skipWeekendMinutes(fromMs, durationMs) {
+  let remaining = durationMs;
+  let cursor = fromMs;
+  while (remaining > 0) {
+    const dow = new Date(cursor).getUTCDay(); // 0=Sun, 6=Sat
+    if (dow === 0 || dow === 6) {
+      // Skip to next Monday 00:00 UTC
+      const next = new Date(cursor);
+      next.setUTCDate(next.getUTCDate() + (dow === 0 ? 1 : 2));
+      next.setUTCHours(0, 0, 0, 0);
+      cursor = next.getTime();
+      continue;
+    }
+    // How many ms remain until end of this weekday (UTC midnight)?
+    const endOfDay = new Date(cursor);
+    endOfDay.setUTCDate(endOfDay.getUTCDate() + 1);
+    endOfDay.setUTCHours(0, 0, 0, 0);
+    const msLeftToday = endOfDay.getTime() - cursor;
+    if (remaining <= msLeftToday) {
+      cursor += remaining;
+      remaining = 0;
+    } else {
+      remaining -= msLeftToday;
+      cursor = endOfDay.getTime();
+    }
+  }
+  return cursor;
+}
+
+/**
  * Calculate next reminder timestamp (ISO string).
  * nextReminder = fromTime + baseInterval × min(1 + checkinCount × 0.5, 5)
+ * When weekdayOnly=true, weekend hours are skipped in the interval.
  */
-function calcNextReminder(priority, checkinCount, fromTime = Date.now()) {
+function calcNextReminder(priority, checkinCount, fromTime = Date.now(), weekdayOnly = false) {
   const base = BASE_INTERVALS[priority];
   const multiplier = Math.min(1 + checkinCount * 0.5, 5);
   const ms = base * multiplier * 60 * 1000;
+  if (weekdayOnly) {
+    return new Date(skipWeekendMinutes(fromTime, ms)).toISOString();
+  }
   return new Date(fromTime + ms).toISOString();
+}
+
+/**
+ * Returns true if any tag on this task has weekday_only = 1.
+ */
+function taskHasWeekdayOnlyTag(taskId) {
+  const tags = stmts.getTagsForTask.all(taskId);
+  return tags.some(t => t.weekday_only === 1);
 }
 
 // ── Task CRUD Helpers ─────────────────────────────────────────────────────────
@@ -40,7 +85,8 @@ function checkinTask(task, note = '', priority = null) {
   stmts.addCheckin.run(task.id, note);
   const newCount = task.checkin_count + 1;
   const newPriority = priority || task.priority;
-  const nextReminder = calcNextReminder(newPriority, newCount);
+  const weekdayOnly = taskHasWeekdayOnlyTag(task.id);
+  const nextReminder = calcNextReminder(newPriority, newCount, Date.now(), weekdayOnly);
   stmts.updateTask.run({
     id: task.id,
     status: task.status,
@@ -80,7 +126,8 @@ function deleteTask(id, userId) {
 }
 
 function changePriority(task, newPriority) {
-  const nextReminder = calcNextReminder(newPriority, task.checkin_count);
+  const weekdayOnly = taskHasWeekdayOnlyTag(task.id);
+  const nextReminder = calcNextReminder(newPriority, task.checkin_count, Date.now(), weekdayOnly);
   stmts.updateTaskPriority.run({ id: task.id, priority: newPriority, nextReminder });
   return stmts.getTaskById.get(task.id);
 }
@@ -145,7 +192,9 @@ function escalateAllDueTasks() {
 
 module.exports = {
   BASE_INTERVALS,
+  skipWeekendMinutes,
   calcNextReminder,
+  taskHasWeekdayOnlyTag,
   createTask,
   getActiveTasks,
   getTaskById,

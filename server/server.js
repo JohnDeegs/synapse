@@ -254,6 +254,18 @@ async function handleCreateTag(req, res, user) {
   }
 }
 
+async function handlePatchTag(req, res, user, tagId) {
+  let body;
+  try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+  const tag = stmts.getTagById.get(tagId);
+  if (!tag) return send(res, 404, { error: 'Tag not found' });
+  if (tag.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+  if (body.weekday_only !== undefined) {
+    stmts.updateTagWeekdayOnly.run(body.weekday_only ? 1 : 0, tagId, user.userId);
+  }
+  return send(res, 200, stmts.getTagById.get(tagId));
+}
+
 async function handleAssignTag(req, res, user, taskId) {
   let body;
   try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
@@ -418,8 +430,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Tag routes — require auth
-    if (req.method === 'GET'  && url === '/tags') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetTags(req, res, u); }
-    if (req.method === 'POST' && url === '/tags') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleCreateTag(req, res, u); }
+    if (req.method === 'GET'   && url === '/tags') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetTags(req, res, u); }
+    if (req.method === 'POST'  && url === '/tags') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleCreateTag(req, res, u); }
+    const tagMatch = url.match(/^\/tags\/(\d+)$/);
+    if (req.method === 'PATCH' && tagMatch) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handlePatchTag(req, res, u, parseInt(tagMatch[1], 10)); }
 
     // Nested task-tag routes: /tasks/:id/tags and /tasks/:id/tags/:tagId
     // Split: ['', 'tasks', '<id>', 'tags', '<tagId?>']

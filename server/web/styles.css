@@ -598,6 +598,25 @@ html.light .tag-chip { background: #e8f0fe; color: var(--accent); }
 .checkin-priority-select.pp3 { background: var(--p3); color: #fff; }
 .checkin-priority-select.pp4 { background: var(--p4); color: #fff; }
 
+.tag-chip-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.weekday-toggle {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  opacity: 0.3;
+  transition: opacity 0.15s;
+  font-size: 11px;
+  user-select: none;
+}
+.weekday-toggle:hover,
+.tag-chip-wrap:has(.tag-weekday-cb:checked) .weekday-toggle { opacity: 1; }
+.weekday-toggle input { display: none; }
+
 .btn-edit-title,
 .btn-edit-desc {
   background: none;

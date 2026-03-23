@@ -337,8 +337,14 @@ function renderTagSidebar() {
   const chips = [
     `<button class="tag-filter-chip ${filterTag === null ? 'active' : ''}" data-tag-id="all">All</button>`,
     `<button class="tag-filter-chip ${filterTag === 'untagged' ? 'active' : ''}" data-tag-id="untagged">Untagged</button>`,
-    ...allTags.map(t =>
-      `<button class="tag-filter-chip ${filterTag === t.id ? 'active' : ''}" data-tag-id="${t.id}">${esc(t.name)}</button>`
+    ...allTags.map(t => `
+      <span class="tag-chip-wrap">
+        <button class="tag-filter-chip ${filterTag === t.id ? 'active' : ''}" data-tag-id="${t.id}">${esc(t.name)}</button>
+        <label class="weekday-toggle" title="Weekday only (Mon–Fri)">
+          <input type="checkbox" class="tag-weekday-cb" data-tag-id="${t.id}" ${t.weekday_only ? 'checked' : ''}>
+          <span class="weekday-toggle-icon">📅</span>
+        </label>
+      </span>`
     ),
   ].join('');
 
@@ -351,6 +357,21 @@ function renderTagSidebar() {
       selectedTaskIds.clear();
       renderTagSidebar();
       renderTasks();
+    });
+  });
+
+  container.querySelectorAll('.tag-weekday-cb').forEach(cb => {
+    cb.addEventListener('change', async function () {
+      const tagId = parseInt(this.dataset.tagId, 10);
+      const checked = this.checked;
+      try {
+        await api('PATCH', `/tags/${tagId}`, { weekday_only: checked ? 1 : 0 });
+        const tag = allTags.find(t => t.id === tagId);
+        if (tag) tag.weekday_only = checked ? 1 : 0;
+      } catch (e) {
+        alert(e.message);
+        this.checked = !checked; // revert on failure
+      }
     });
   });
 }
