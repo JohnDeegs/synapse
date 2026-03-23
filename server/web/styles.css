@@ -247,6 +247,7 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
 
 .stat-num.stat-urgent         { color: var(--danger); }
 .stat-num.stat-health-green  { color: #2ea44f; font-weight: 700; }
+.stat-num.stat-health-amber  { color: #d97706; font-weight: 700; }
 .stat-num.stat-health-red    { color: var(--danger); font-weight: 700; }
 
 /* ── Health Grid ─────────────────────────────────────────────────────────── */

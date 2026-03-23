@@ -295,9 +295,18 @@ function updateStats() {
 
   const healthEl = document.getElementById('stat-health');
   if (healthEl) {
-    const anyOverdue = active.some(t => new Date(t.next_reminder).getTime() < now);
-    healthEl.textContent = anyOverdue ? 'Red' : 'Green';
-    healthEl.className = anyOverdue ? 'stat-num stat-health-red' : 'stat-num stat-health-green';
+    const anyOverdue  = active.some(t => new Date(t.next_reminder).getTime() < now);
+    const anyDueSoon  = active.some(t => new Date(t.next_reminder).getTime() - now < 3_600_000);
+    if (anyOverdue) {
+      healthEl.textContent = 'Red';
+      healthEl.className = 'stat-num stat-health-red';
+    } else if (anyDueSoon) {
+      healthEl.textContent = 'At risk';
+      healthEl.className = 'stat-num stat-health-amber';
+    } else {
+      healthEl.textContent = 'Green';
+      healthEl.className = 'stat-num stat-health-green';
+    }
   }
 }
 
