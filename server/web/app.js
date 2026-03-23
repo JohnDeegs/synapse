@@ -610,11 +610,11 @@ function renderCard(task) {
     checkinArea.classList.contains('hidden') ? openCheckin() : closeCheckin();
   });
 
-  // Clicking anywhere on the card that isn't already interactive opens check-in
+  // Clicking anywhere on the card that isn't already interactive toggles check-in
   if (isActive) {
     el.addEventListener('click', e => {
       if (e.target.closest('button, select, input, textarea, a, label, .checkin-area, .checkin-history')) return;
-      openCheckin();
+      checkinArea.classList.contains('hidden') ? openCheckin() : closeCheckin();
     });
   }
 
