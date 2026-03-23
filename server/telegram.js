@@ -226,4 +226,33 @@ async function sendDailyBriefings() {
   }
 }
 
-module.exports = { registerWebhook, sendMessage, handleUpdate, sendDailyBriefings, WEBHOOK_SECRET };
+/**
+ * Send overdue task alerts to each linked Telegram user.
+ * Checks for tasks whose next_reminder fell within the last 5 minutes.
+ * Called every 5 minutes by the scheduler in server.js.
+ */
+async function sendOverdueAlerts() {
+  if (!BOT_TOKEN) return;
+
+  const links = stmts.getAllTelegramLinks.all();
+  const windowStart = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const windowEnd   = new Date().toISOString();
+
+  for (const link of links) {
+    try {
+      const overdue = getActiveTasks(link.user_id)
+        .filter(t => t.next_reminder >= windowStart && t.next_reminder <= windowEnd);
+      if (overdue.length === 0) continue;
+
+      const lines = overdue.map(t => `• [${t.priority}] ${t.title}`).join('\n');
+      const msg = overdue.length === 1
+        ? `Overdue reminder:\n${lines}`
+        : `${overdue.length} tasks are overdue:\n${lines}`;
+      await sendMessage(link.chat_id, msg);
+    } catch (e) {
+      console.error(`Overdue alert error for user ${link.user_id}:`, e.message);
+    }
+  }
+}
+
+module.exports = { registerWebhook, sendMessage, handleUpdate, sendDailyBriefings, sendOverdueAlerts, WEBHOOK_SECRET };

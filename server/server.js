@@ -11,7 +11,7 @@ const {
   changePriority, escalateAllDueTasks, snapshotDailyHealth,
 } = require('./tasks');
 const telegram = require('./telegram');
-const { sendDailyBriefings } = telegram;
+const { sendDailyBriefings, sendOverdueAlerts } = telegram;
 const { updateTaskEmbedding, backfillEmbeddings } = require('./embeddings');
 
 const PORT = process.env.PORT || 3000;
@@ -501,6 +501,13 @@ function scheduleDailyBriefing() {
   setTimeout(runAndSchedule, delay);
 }
 
+/** Send overdue task alerts to Telegram users every 5 minutes. */
+function scheduleOverdueAlerts() {
+  setInterval(() => {
+    sendOverdueAlerts().catch(e => console.error('Overdue alert error:', e.message));
+  }, 5 * 60 * 1000);
+}
+
 /** Run due-date escalation and health snapshots every hour. */
 function scheduleHourlyEscalation() {
   setInterval(() => {
@@ -531,5 +538,6 @@ server.listen(PORT, () => {
   scheduleHourlyEscalation();
   if (process.env.TELEGRAM_BOT_TOKEN) {
     scheduleDailyBriefing();
+    scheduleOverdueAlerts();
   }
 });
