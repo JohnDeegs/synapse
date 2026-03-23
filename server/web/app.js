@@ -304,6 +304,7 @@ function getSortedFilteredTasks() {
     return true;
   }).filter(t => {
     if (filterTag === null) return true;
+    if (filterTag === 'untagged') return (t.tags || []).length === 0;
     return (t.tags || []).some(tag => tag.id === filterTag);
   }).filter(matchesDueFilter);
   return filtered.sort((a, b) => {
@@ -320,6 +321,7 @@ function renderTagSidebar() {
 
   const chips = [
     `<button class="tag-filter-chip ${filterTag === null ? 'active' : ''}" data-tag-id="all">All</button>`,
+    `<button class="tag-filter-chip ${filterTag === 'untagged' ? 'active' : ''}" data-tag-id="untagged">Untagged</button>`,
     ...allTags.map(t =>
       `<button class="tag-filter-chip ${filterTag === t.id ? 'active' : ''}" data-tag-id="${t.id}">${esc(t.name)}</button>`
     ),
@@ -330,7 +332,7 @@ function renderTagSidebar() {
   container.querySelectorAll('.tag-filter-chip').forEach(btn => {
     btn.addEventListener('click', () => {
       const val = btn.dataset.tagId;
-      filterTag = val === 'all' ? null : parseInt(val, 10);
+      filterTag = val === 'all' ? null : val === 'untagged' ? 'untagged' : parseInt(val, 10);
       selectedTaskIds.clear();
       renderTagSidebar();
       renderTasks();
