@@ -265,6 +265,12 @@ async function handlePatchTag(req, res, user, tagId) {
   if (body.weekday_only !== undefined) {
     stmts.updateTagWeekdayOnly.run(body.weekday_only ? 1 : 0, tagId, user.userId);
   }
+  if (body.quiet_start !== undefined || body.quiet_end !== undefined) {
+    const current = stmts.getTagById.get(tagId);
+    const qs = body.quiet_start !== null && body.quiet_start !== undefined ? parseInt(body.quiet_start, 10) : (body.quiet_start === null ? null : current.quiet_start);
+    const qe = body.quiet_end   !== null && body.quiet_end   !== undefined ? parseInt(body.quiet_end,   10) : (body.quiet_end   === null ? null : current.quiet_end);
+    stmts.updateTagQuietHours.run(qs, qe, tagId, user.userId);
+  }
   return send(res, 200, stmts.getTagById.get(tagId));
 }
 

@@ -102,6 +102,8 @@ for (const ddl of [
   'ALTER TABLE tasks ADD COLUMN embedding TEXT',
   'ALTER TABLE tasks ADD COLUMN due_date TEXT',
   'ALTER TABLE tags ADD COLUMN weekday_only INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE tags ADD COLUMN quiet_start INTEGER',
+  'ALTER TABLE tags ADD COLUMN quiet_end INTEGER',
 ]) {
   try { db.exec(ddl); } catch (e) {
     if (!e.message.includes('duplicate column name')) throw e;
@@ -165,16 +167,19 @@ const stmts = {
 
   // Tags
   createTag: db.prepare(
-    'INSERT INTO tags (user_id, name) VALUES (?, ?) RETURNING id, name, weekday_only'
+    'INSERT INTO tags (user_id, name) VALUES (?, ?) RETURNING id, name, weekday_only, quiet_start, quiet_end'
   ),
   getTagsByUser: db.prepare(
-    'SELECT id, name, weekday_only FROM tags WHERE user_id = ? ORDER BY name ASC'
+    'SELECT id, name, weekday_only, quiet_start, quiet_end FROM tags WHERE user_id = ? ORDER BY name ASC'
   ),
   getTagById: db.prepare(
     'SELECT * FROM tags WHERE id = ?'
   ),
   updateTagWeekdayOnly: db.prepare(
     'UPDATE tags SET weekday_only = ? WHERE id = ? AND user_id = ?'
+  ),
+  updateTagQuietHours: db.prepare(
+    'UPDATE tags SET quiet_start = ?, quiet_end = ? WHERE id = ? AND user_id = ?'
   ),
   assignTag: db.prepare(
     'INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?, ?)'
@@ -183,10 +188,10 @@ const stmts = {
     'DELETE FROM task_tags WHERE task_id = ? AND tag_id = ?'
   ),
   getTagsForTask: db.prepare(
-    'SELECT t.id, t.name, t.weekday_only FROM tags t JOIN task_tags tt ON tt.tag_id = t.id WHERE tt.task_id = ?'
+    'SELECT t.id, t.name, t.weekday_only, t.quiet_start, t.quiet_end FROM tags t JOIN task_tags tt ON tt.tag_id = t.id WHERE tt.task_id = ?'
   ),
   getTagsByUserForTasks: db.prepare(
-    'SELECT tt.task_id, t.id, t.name, t.weekday_only FROM task_tags tt JOIN tags t ON t.id = tt.tag_id JOIN tasks tk ON tk.id = tt.task_id WHERE tk.user_id = ?'
+    'SELECT tt.task_id, t.id, t.name, t.weekday_only, t.quiet_start, t.quiet_end FROM task_tags tt JOIN tags t ON t.id = tt.tag_id JOIN tasks tk ON tk.id = tt.task_id WHERE tk.user_id = ?'
   ),
 
   // Telegram codes

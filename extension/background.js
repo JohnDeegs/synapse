@@ -75,6 +75,23 @@ async function checkAndNotify() {
     const due = new Date(task.next_reminder).getTime();
     if (due > now) continue;
 
+    // Check per-tag quiet hours — snooze task if any tag is in its quiet window
+    if (task.tags) {
+      const quietTag = task.tags.find(tag =>
+        tag.quiet_start !== null && tag.quiet_end !== null &&
+        isDuringQuietHours(tag.quiet_start, tag.quiet_end)
+      );
+      if (quietTag) {
+        const minsUntilEnd = Math.ceil(msUntilQuietEnd(quietTag.quiet_end) / 60000);
+        await fetch(`${apiBase}/tasks/${task.id}`, {
+          method: 'PATCH',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'snooze', minutes: minsUntilEnd })
+        }).catch(() => {});
+        continue;
+      }
+    }
+
     // Skip if we already have an active notification for this task
     const alreadyNotified = Object.values(activeNotifications).includes(task.id);
     if (alreadyNotified) continue;

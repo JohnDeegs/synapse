@@ -408,18 +408,37 @@ function renderTagSidebar() {
   const container = document.getElementById('tag-filters');
   if (!container) return;
 
+  function hourOptions(selected) {
+    return Array.from({ length: 24 }, (_, h) => {
+      const label = h === 0 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`;
+      return `<option value="${h}" ${selected === h ? 'selected' : ''}>${label}</option>`;
+    }).join('');
+  }
+
   const chips = [
     `<button class="tag-filter-chip ${filterTag === null ? 'active' : ''}" data-tag-id="all">All</button>`,
     `<button class="tag-filter-chip ${filterTag === 'untagged' ? 'active' : ''}" data-tag-id="untagged">Untagged</button>`,
-    ...allTags.map(t => `
+    ...allTags.map(t => {
+      const hasQuiet = t.quiet_start !== null && t.quiet_end !== null;
+      return `
       <span class="tag-chip-wrap">
         <button class="tag-filter-chip ${filterTag === t.id ? 'active' : ''}" data-tag-id="${t.id}">${esc(t.name)}</button>
         <label class="weekday-toggle" title="Weekday only (Mon–Fri)">
           <input type="checkbox" class="tag-weekday-cb" data-tag-id="${t.id}" ${t.weekday_only ? 'checked' : ''}>
           <span class="weekday-toggle-icon">📅</span>
         </label>
-      </span>`
-    ),
+        <label class="weekday-toggle tag-quiet-toggle" title="Quiet hours for this tag">
+          <input type="checkbox" class="tag-quiet-cb" data-tag-id="${t.id}" ${hasQuiet ? 'checked' : ''}>
+          <span class="weekday-toggle-icon">🌙</span>
+        </label>
+        ${hasQuiet ? `
+        <span class="tag-quiet-hours" data-tag-id="${t.id}">
+          <select class="tag-quiet-start" data-tag-id="${t.id}">${hourOptions(t.quiet_start)}</select>
+          <span class="tag-quiet-sep">–</span>
+          <select class="tag-quiet-end" data-tag-id="${t.id}">${hourOptions(t.quiet_end)}</select>
+        </span>` : ''}
+      </span>`;
+    }),
   ].join('');
 
   container.innerHTML = chips;
@@ -445,6 +464,42 @@ function renderTagSidebar() {
       } catch (e) {
         alert(e.message);
         this.checked = !checked; // revert on failure
+      }
+    });
+  });
+
+  container.querySelectorAll('.tag-quiet-cb').forEach(cb => {
+    cb.addEventListener('change', async function () {
+      const tagId = parseInt(this.dataset.tagId, 10);
+      const checked = this.checked;
+      const qs = checked ? 9 : null;
+      const qe = checked ? 17 : null;
+      try {
+        await api('PATCH', `/tags/${tagId}`, { quiet_start: qs, quiet_end: qe });
+        const tag = allTags.find(t => t.id === tagId);
+        if (tag) { tag.quiet_start = qs; tag.quiet_end = qe; }
+        renderTagSidebar();
+      } catch (e) {
+        alert(e.message);
+        this.checked = !checked;
+      }
+    });
+  });
+
+  container.querySelectorAll('.tag-quiet-start, .tag-quiet-end').forEach(sel => {
+    sel.addEventListener('change', async function () {
+      const tagId = parseInt(this.dataset.tagId, 10);
+      const tag = allTags.find(t => t.id === tagId);
+      const startEl = container.querySelector(`.tag-quiet-start[data-tag-id="${tagId}"]`);
+      const endEl   = container.querySelector(`.tag-quiet-end[data-tag-id="${tagId}"]`);
+      const qs = parseInt(startEl.value, 10);
+      const qe = parseInt(endEl.value, 10);
+      try {
+        await api('PATCH', `/tags/${tagId}`, { quiet_start: qs, quiet_end: qe });
+        if (tag) { tag.quiet_start = qs; tag.quiet_end = qe; }
+      } catch (e) {
+        alert(e.message);
+        renderTagSidebar(); // revert
       }
     });
   });

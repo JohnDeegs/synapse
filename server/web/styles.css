@@ -721,6 +721,29 @@ html.light .tag-chip { background: #e8f0fe; color: var(--accent); }
 .tag-chip-wrap:has(.tag-weekday-cb:checked) .weekday-toggle { opacity: 1; }
 .weekday-toggle input { display: none; }
 
+.tag-quiet-toggle { margin-left: 1px; }
+.tag-chip-wrap:has(.tag-quiet-cb:checked) .tag-quiet-toggle { opacity: 1; }
+
+.tag-quiet-hours {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+}
+.tag-quiet-hours select {
+  font-size: 10px;
+  padding: 1px 2px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+.tag-quiet-sep {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
 .btn-edit-title,
 .btn-edit-desc {
   background: none;
