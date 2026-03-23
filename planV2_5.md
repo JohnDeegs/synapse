@@ -10,25 +10,25 @@ Continues from `tasksV2.md`. Same branch/merge conventions apply.
 **Branch:** `phase/14-qol-checkin-weekend-gamification`
 
 ### Tasks
-- [ ] **Untagged filter:** Add "Untagged" chip to tag sidebar; filter tasks with no tags assigned
-- [ ] **Auto-refresh:** Poll `GET /tasks` every 30s; re-render if task data has changed (enables cross-window sync)
-- [ ] **Check-in UX — default open + priority fix:**
-  - Clicking a task title opens check-in area by default (add separate ✎ button for title editing)
-  - Add priority `<select>` inside the check-in area
-  - Disable header priority select while check-in area is open to prevent timer advancing before check-in completes
+- [x] **Untagged filter:** Add "Untagged" chip to tag sidebar; filter tasks with no tags assigned
+- [x] **Auto-refresh:** Poll `GET /tasks` every 30s; re-render if task data has changed (enables cross-window sync)
+- [x] **Check-in UX — default open + priority fix:**
+  - Clicking anywhere on a task card (non-interactive area) toggles the check-in area
+  - ✎ button handles title editing; ✎ button on description handles description editing
+  - Priority `<select>` inside check-in area; header priority select disabled while check-in is open
   - Submit check-in with selected priority via `PATCH /tasks/:id { action:'checkin', note, priority }`
-- [ ] **Weekend mode (weekday-only tags):**
+- [x] **Weekend mode (weekday-only tags):**
   - `ALTER TABLE tags ADD COLUMN weekday_only INTEGER NOT NULL DEFAULT 0`
   - `CREATE TABLE daily_health (id, user_id, date, status)` — also used by gamification
-  - Add `PATCH /tags/:id` endpoint to toggle `weekday_only`
-  - SRS: `skipWeekendMinutes(fromMs, durationMs)` helper in `tasks.js`; `calcNextReminder()` gains `weekdayOnly` param; `checkinTask()` and `changePriority()` check task tags before calling it
-  - UI: weekday-only toggle (⏰) per tag chip in sidebar
-- [ ] **Gamification — health bar + streak grid:**
-  - `snapshotDailyHealth(userId)` in `tasks.js`: writes `'green'`/`'red'` to `daily_health` based on whether any active task is currently overdue
-  - Called after every check-in and complete mutation, and in the hourly scheduler for all users
-  - `GET /health/history` endpoint: returns last 365 days of `{ date, status }` rows
-  - Stats bar: live health indicator (green/red) computed client-side from `allTasks`
-  - Health grid: 52-week GitHub-style heatmap rendered from `/health/history`; consecutive green days shown as streak count
+  - `PATCH /tags/:id` endpoint to toggle `weekday_only`
+  - SRS: `skipWeekendMinutes(fromMs, durationMs)` helper; `calcNextReminder()` gains `weekdayOnly` param
+  - 📅 toggle per tag chip in sidebar
+- [x] **Gamification — health bar + streak grid:**
+  - Health progress bar: fills green (100% tasks on time) → amber (≥60%) → red (<60%)
+  - Three-state stat badge: Green / At risk (due within 1h) / Red
+  - `snapshotDailyHealth(userId)` writes to `daily_health` after check-in/complete + hourly
+  - `GET /health/history` returns last 365 days
+  - 52-week GitHub-style heatmap with streak counter
 
 ### Testing
 1. Create tasks with and without tags → click "Untagged" chip → only untagged tasks visible
