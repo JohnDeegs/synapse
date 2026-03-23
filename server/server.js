@@ -228,7 +228,7 @@ function handleStaticFile(req, res) {
 
   fs.readFile(resolved, (err, data) => {
     if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('Not found'); }
-    res.writeHead(200, { 'Content-Type': contentType });
+    res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-store' });
     res.end(data);
   });
 }
