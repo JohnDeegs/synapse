@@ -190,11 +190,26 @@ function escalateAllDueTasks() {
   return count;
 }
 
+/**
+ * Snapshot today's health for a user: 'green' if no active task is overdue,
+ * 'red' if any active task is past its next_reminder. Upserts daily_health.
+ */
+function snapshotDailyHealth(userId) {
+  const now = Date.now();
+  const tasks = stmts.getActiveTasks.all(userId);
+  const anyOverdue = tasks.some(t => new Date(t.next_reminder).getTime() < now);
+  const status = anyOverdue ? 'red' : 'green';
+  const date = new Date().toISOString().slice(0, 10);
+  stmts.upsertDailyHealth.run({ userId, date, status });
+  return status;
+}
+
 module.exports = {
   BASE_INTERVALS,
   skipWeekendMinutes,
   calcNextReminder,
   taskHasWeekdayOnlyTag,
+  snapshotDailyHealth,
   createTask,
   getActiveTasks,
   getTaskById,

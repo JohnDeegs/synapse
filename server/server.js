@@ -8,7 +8,7 @@ const { hashPassword, verifyPassword, signToken, verifyToken } = require('./auth
 const {
   createTask, getActiveTasks, getTaskById,
   checkinTask, completeTask, snoozeTask, deleteTask, updateTaskContent,
-  changePriority, escalateAllDueTasks,
+  changePriority, escalateAllDueTasks, snapshotDailyHealth,
 } = require('./tasks');
 const telegram = require('./telegram');
 const { sendDailyBriefings } = telegram;
@@ -188,10 +188,12 @@ async function handlePatchTask(req, res, user, id) {
       return send(res, 400, { error: 'priority must be P0, P1, P2, P3, or P4' });
     }
     const updated = checkinTask(task, note || '', body.priority || null);
+    snapshotDailyHealth(user.userId);
     return send(res, 200, updated);
   }
   if (action === 'complete') {
     const updated = completeTask(task);
+    snapshotDailyHealth(user.userId);
     return send(res, 200, updated);
   }
   if (action === 'snooze') {
@@ -429,6 +431,14 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, stmts.getSettings.get(u.userId));
     }
 
+    // Health history
+    if (req.method === 'GET' && url === '/health/history') {
+      const u = authenticate(req);
+      if (!u) return send(res, 401, { error: 'Unauthorized' });
+      const since = new Date(Date.now() - 365 * 24 * 3_600_000).toISOString().slice(0, 10);
+      return send(res, 200, stmts.getDailyHealth.all(u.userId, since));
+    }
+
     // Tag routes — require auth
     if (req.method === 'GET'   && url === '/tags') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetTags(req, res, u); }
     if (req.method === 'POST'  && url === '/tags') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleCreateTag(req, res, u); }
@@ -491,7 +501,7 @@ function scheduleDailyBriefing() {
   setTimeout(runAndSchedule, delay);
 }
 
-/** Run due-date escalation every hour so priority bumps apply between briefings. */
+/** Run due-date escalation and health snapshots every hour. */
 function scheduleHourlyEscalation() {
   setInterval(() => {
     try {
@@ -499,6 +509,13 @@ function scheduleHourlyEscalation() {
       if (n > 0) console.log(`Hourly escalation: ${n} task(s) priority-bumped.`);
     } catch (e) {
       console.error('Escalation error:', e.message);
+    }
+    try {
+      for (const { id } of stmts.getAllUserIds.all()) {
+        snapshotDailyHealth(id);
+      }
+    } catch (e) {
+      console.error('Health snapshot error:', e.message);
     }
   }, 60 * 60 * 1000);
 }
@@ -511,8 +528,8 @@ server.listen(PORT, () => {
   }
   backfillEmbeddings()
     .catch(err => console.error('Embedding backfill error:', err));
+  scheduleHourlyEscalation();
   if (process.env.TELEGRAM_BOT_TOKEN) {
     scheduleDailyBriefing();
-    scheduleHourlyEscalation();
   }
 });

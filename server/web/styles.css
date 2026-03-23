@@ -245,7 +245,75 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
   margin-bottom: 4px;
 }
 
-.stat-num.stat-urgent { color: var(--danger); }
+.stat-num.stat-urgent         { color: var(--danger); }
+.stat-num.stat-health-green  { color: #2ea44f; font-weight: 700; }
+.stat-num.stat-health-red    { color: var(--danger); font-weight: 700; }
+
+/* ── Health Grid ─────────────────────────────────────────────────────────── */
+.health-grid-section {
+  padding: 10px 24px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.health-grid-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.health-grid-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.streak-badge {
+  font-size: 12px;
+  background: #2ea44f22;
+  color: #2ea44f;
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-weight: 600;
+}
+
+.streak-zero {
+  background: var(--border);
+  color: var(--text-secondary);
+}
+
+.health-legend {
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.health-cells {
+  display: grid;
+  grid-template-rows: repeat(7, 11px);
+  grid-auto-flow: column;
+  grid-auto-columns: 11px;
+  gap: 2px;
+  overflow-x: auto;
+}
+
+.health-cell {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.health-green { background: #2ea44f; }
+.health-red   { background: var(--danger); }
+.health-none  { background: var(--border); }
+.health-empty { background: transparent; }
 
 .stat-label {
   font-size: 11px;

@@ -198,7 +198,6 @@ async function patchTask(id, body) {
     if (idx !== -1) { updated.tags = allTasks[idx].tags || []; allTasks[idx] = updated; }
   } catch (e) {
     if (e.status === 404) {
-      // Task was deleted in another window — remove it locally and move on
       allTasks = allTasks.filter(t => t.id !== id);
     } else {
       throw e;
@@ -206,6 +205,9 @@ async function patchTask(id, body) {
   }
   renderTasks();
   updateStats();
+  if (body.action === 'checkin' || body.action === 'complete') {
+    fetchAndRenderHealthGrid();
+  }
 }
 
 async function deleteTask(id) {
@@ -290,6 +292,57 @@ function updateStats() {
   document.getElementById('stat-active').textContent = active.length;
   document.getElementById('stat-due').textContent = dueIn1h.length;
   document.getElementById('stat-completed').textContent = completedThisWeek.length;
+
+  const healthEl = document.getElementById('stat-health');
+  if (healthEl) {
+    const anyOverdue = active.some(t => new Date(t.next_reminder).getTime() < now);
+    healthEl.textContent = anyOverdue ? 'Red' : 'Green';
+    healthEl.className = anyOverdue ? 'stat-num stat-health-red' : 'stat-num stat-health-green';
+  }
+}
+
+async function fetchAndRenderHealthGrid() {
+  try {
+    const rows = await api('GET', '/health/history');
+    const map = new Map(rows.map(r => [r.date, r.status]));
+
+    // Calculate streak: consecutive green days going back from today
+    let streak = 0;
+    for (let i = 0; i < 365; i++) {
+      const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+      if (map.get(d) === 'green') { streak++; }
+      else { break; }
+    }
+
+    // Build 365-day grid oldest → newest
+    const days = Array.from({ length: 365 }, (_, i) =>
+      new Date(Date.now() - (364 - i) * 86_400_000).toISOString().slice(0, 10)
+    );
+
+    // Pad empty cells so first day aligns to correct day-of-week column (Sun=0)
+    const firstDow = new Date(days[0] + 'T00:00:00Z').getUTCDay();
+    const cells = [
+      ...Array.from({ length: firstDow }, () => `<span class="health-cell health-empty"></span>`),
+      ...days.map(date => {
+        const status = map.get(date) || 'none';
+        return `<span class="health-cell health-${status}" title="${date}"></span>`;
+      }),
+    ].join('');
+
+    const streakHtml = streak > 0
+      ? `<span class="streak-badge">🔥 ${streak} day${streak !== 1 ? 's' : ''} in the green</span>`
+      : `<span class="streak-badge streak-zero">No current streak</span>`;
+
+    const el = document.getElementById('health-grid');
+    if (el) el.innerHTML = `
+      <div class="health-grid-header">
+        <span class="health-grid-label">365-day health</span>
+        ${streakHtml}
+        <span class="health-legend"><span class="health-cell health-green"></span> Green &nbsp; <span class="health-cell health-red"></span> Red</span>
+      </div>
+      <div class="health-cells">${cells}</div>
+    `;
+  } catch { /* non-critical — silently skip */ }
 }
 
 // ── Sort & Filter ──────────────────────────────────────────────────────────────
@@ -790,6 +843,7 @@ function showApp() {
   document.getElementById('user-email').textContent = userEmail || '';
   // Load tags first so tag pickers are populated when task cards render
   fetchTags().then(() => fetchTasks()).catch(e => console.error(e));
+  fetchAndRenderHealthGrid();
   fetchTelegramStatus();
   initQuietHoursUI();
   if (countdownTimer) clearInterval(countdownTimer);
