@@ -11,6 +11,7 @@ let filterTag    = null; // null = all tags, number = specific tag id
 let filterDue    = 'all'; // 'all' | 'today' | 'week' | 'month'
 let selectedTaskIds = new Set();
 let countdownTimer = null;
+let autoRefreshTimer = null;
 let newTaskMDE = null; // EasyMDE instance for the new-task form (lazy-init)
 let newTaskDP  = null; // DatePicker instance for the new-task form (lazy-init)
 
@@ -81,6 +82,7 @@ function logout() {
   localStorage.removeItem('synapse_token');
   localStorage.removeItem('synapse_email');
   if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
   if (telegramCountdownTimer) { clearInterval(telegramCountdownTimer); telegramCountdownTimer = null; }
   showLogin();
 }
@@ -721,6 +723,18 @@ function showApp() {
   initQuietHoursUI();
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(updateCountdowns, 30_000);
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(async () => {
+    try {
+      const fresh = await api('GET', '/tasks?status=all');
+      const sig = t => `${t.id}:${t.next_reminder}:${t.status}`;
+      if (allTasks.map(sig).join('|') !== fresh.map(sig).join('|')) {
+        allTasks = fresh;
+        renderTasks();
+        updateStats();
+      }
+    } catch { /* network unavailable — skip silently */ }
+  }, 30_000);
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
