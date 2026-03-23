@@ -192,15 +192,28 @@ async function createTask(title, priority, description, dueDate) {
 }
 
 async function patchTask(id, body) {
-  const updated = await api('PATCH', `/tasks/${id}`, body);
-  const idx = allTasks.findIndex(t => t.id === id);
-  if (idx !== -1) { updated.tags = allTasks[idx].tags || []; allTasks[idx] = updated; }
+  try {
+    const updated = await api('PATCH', `/tasks/${id}`, body);
+    const idx = allTasks.findIndex(t => t.id === id);
+    if (idx !== -1) { updated.tags = allTasks[idx].tags || []; allTasks[idx] = updated; }
+  } catch (e) {
+    if (e.status === 404) {
+      // Task was deleted in another window — remove it locally and move on
+      allTasks = allTasks.filter(t => t.id !== id);
+    } else {
+      throw e;
+    }
+  }
   renderTasks();
   updateStats();
 }
 
 async function deleteTask(id) {
-  await api('DELETE', `/tasks/${id}`);
+  try {
+    await api('DELETE', `/tasks/${id}`);
+  } catch (e) {
+    if (e.status !== 404) throw e;
+  }
   allTasks = allTasks.filter(t => t.id !== id);
   selectedTaskIds.delete(id);
   renderTasks();
