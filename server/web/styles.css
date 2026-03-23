@@ -250,6 +250,41 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
 .stat-num.stat-health-amber  { color: #d97706; font-weight: 700; }
 .stat-num.stat-health-red    { color: var(--danger); font-weight: 700; }
 
+/* ── Health Bar ──────────────────────────────────────────────────────────── */
+.health-bar-section {
+  padding: 8px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.health-bar-track {
+  flex: 1;
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.health-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+
+.health-bar-fill.bar-green { background: #2ea44f; }
+.health-bar-fill.bar-amber { background: #d97706; }
+.health-bar-fill.bar-red   { background: var(--danger); }
+
+.health-bar-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  min-width: 120px;
+  text-align: right;
+}
+
 /* ── Health Grid ─────────────────────────────────────────────────────────── */
 .health-grid-section {
   padding: 10px 24px 14px;

@@ -308,6 +308,18 @@ function updateStats() {
       healthEl.className = 'stat-num stat-health-green';
     }
   }
+
+  // Health bar: fill = proportion of active tasks that are on time
+  const fill  = document.getElementById('health-bar-fill');
+  const label = document.getElementById('health-bar-label');
+  if (fill && label) {
+    const onTime = active.filter(t => new Date(t.next_reminder).getTime() > now).length;
+    const total  = active.length;
+    const pct    = total === 0 ? 100 : Math.round(onTime / total * 100);
+    fill.style.width = `${pct}%`;
+    fill.className = `health-bar-fill ${pct === 100 ? 'bar-green' : pct >= 60 ? 'bar-amber' : 'bar-red'}`;
+    label.textContent = total === 0 ? 'No active tasks' : `${onTime} / ${total} tasks on time`;
+  }
 }
 
 async function fetchAndRenderHealthGrid() {
