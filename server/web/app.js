@@ -430,6 +430,7 @@ function renderCard(task) {
         : `<span class="priority-badge pp${task.priority.toLowerCase()}">${task.priority}</span>`
       }
       <span class="task-title">${esc(task.title)}</span>
+      ${isActive ? `<button class="btn-edit-title" title="Edit title">✎</button>` : ''}
       <span class="${countdownClass(task.next_reminder)}" data-countdown="${task.next_reminder}">
         ${formatCountdown(task.next_reminder)}
       </span>
@@ -459,7 +460,12 @@ function renderCard(task) {
     </div>
     <div class="checkin-area hidden">
       <textarea class="checkin-note" placeholder="Status update…" rows="2"></textarea>
-      <button class="btn-primary btn-submit-checkin">Submit check-in</button>
+      <div class="checkin-controls">
+        <select class="checkin-priority-select pp${task.priority.toLowerCase()}">
+          ${['P0','P1','P2','P3','P4'].map(p => `<option value="${p}"${p === task.priority ? ' selected' : ''}>${p}</option>`).join('')}
+        </select>
+        <button class="btn-primary btn-submit-checkin">Submit check-in</button>
+      </div>
     </div>
     <div class="checkin-history hidden"></div>
   `;
@@ -475,7 +481,15 @@ function renderCard(task) {
   // ── Inline editing: title ─────────────────────────────────────────────────
   if (isActive) {
     const titleEl = el.querySelector('.task-title');
+
+    // Clicking the title opens the check-in area by default
     titleEl.addEventListener('click', () => {
+      el.querySelector('.btn-checkin')?.click();
+    });
+
+    // The ✎ button opens the inline title editor
+    el.querySelector('.btn-edit-title')?.addEventListener('click', e => {
+      e.stopPropagation();
       const input = document.createElement('input');
       input.type = 'text';
       input.value = task.title;
@@ -582,13 +596,30 @@ function renderCard(task) {
   // ── Check-in ──────────────────────────────────────────────────────────────
   const checkinArea = el.querySelector('.checkin-area');
   const checkinNote = el.querySelector('.checkin-note');
+  const headerPrioritySel = el.querySelector('.priority-select');
+
+  const openCheckin = () => {
+    checkinArea.classList.remove('hidden');
+    if (headerPrioritySel) headerPrioritySel.disabled = true;
+    checkinNote.focus();
+  };
+  const closeCheckin = () => {
+    checkinArea.classList.add('hidden');
+    if (headerPrioritySel) headerPrioritySel.disabled = false;
+  };
+
   el.querySelector('.btn-checkin')?.addEventListener('click', () => {
-    checkinArea.classList.toggle('hidden');
-    if (!checkinArea.classList.contains('hidden')) checkinNote.focus();
+    checkinArea.classList.contains('hidden') ? openCheckin() : closeCheckin();
   });
+
+  el.querySelector('.checkin-priority-select')?.addEventListener('change', function () {
+    this.className = `checkin-priority-select pp${this.value.toLowerCase()}`;
+  });
+
   el.querySelector('.btn-submit-checkin')?.addEventListener('click', async () => {
     const note = checkinNote.value.trim();
-    await patchTask(task.id, { action: 'checkin', note }).catch(e => alert(e.message));
+    const priority = el.querySelector('.checkin-priority-select')?.value || task.priority;
+    await patchTask(task.id, { action: 'checkin', note, priority }).catch(e => alert(e.message));
   });
 
   // ── Check-in history ──────────────────────────────────────────────────────
