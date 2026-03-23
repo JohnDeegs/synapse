@@ -14,6 +14,7 @@ let countdownTimer = null;
 let autoRefreshTimer = null;
 let newTaskMDE = null; // EasyMDE instance for the new-task form (lazy-init)
 let newTaskDP  = null; // DatePicker instance for the new-task form (lazy-init)
+let openQuietTagId = null; // which tag's quiet-hours popout is open
 
 // ── Theme ──────────────────────────────────────────────────────────────────────
 function initTheme() {
@@ -420,6 +421,7 @@ function renderTagSidebar() {
     `<button class="tag-filter-chip ${filterTag === 'untagged' ? 'active' : ''}" data-tag-id="untagged">Untagged</button>`,
     ...allTags.map(t => {
       const hasQuiet = t.quiet_start !== null && t.quiet_end !== null;
+      const popoutOpen = openQuietTagId === t.id;
       return `
       <span class="tag-chip-wrap">
         <button class="tag-filter-chip ${filterTag === t.id ? 'active' : ''}" data-tag-id="${t.id}">${esc(t.name)}</button>
@@ -427,16 +429,17 @@ function renderTagSidebar() {
           <input type="checkbox" class="tag-weekday-cb" data-tag-id="${t.id}" ${t.weekday_only ? 'checked' : ''}>
           <span class="weekday-toggle-icon">📅</span>
         </label>
-        <label class="weekday-toggle tag-quiet-toggle" title="Quiet hours for this tag">
-          <input type="checkbox" class="tag-quiet-cb" data-tag-id="${t.id}" ${hasQuiet ? 'checked' : ''}>
-          <span class="weekday-toggle-icon">🌙</span>
-        </label>
-        ${hasQuiet ? `
-        <span class="tag-quiet-hours" data-tag-id="${t.id}">
-          <select class="tag-quiet-start" data-tag-id="${t.id}">${hourOptions(t.quiet_start)}</select>
-          <span class="tag-quiet-sep">–</span>
-          <select class="tag-quiet-end" data-tag-id="${t.id}">${hourOptions(t.quiet_end)}</select>
-        </span>` : ''}
+        <span class="tag-quiet-wrap">
+          <button class="tag-quiet-btn${hasQuiet ? ' has-quiet' : ''}" data-tag-id="${t.id}" title="Quiet hours">🌙</button>
+          ${popoutOpen ? `
+          <div class="tag-quiet-popout">
+            <span class="tag-quiet-label">Quiet</span>
+            <select class="tag-quiet-start" data-tag-id="${t.id}">${hourOptions(hasQuiet ? t.quiet_start : 9)}</select>
+            <span class="tag-quiet-sep">–</span>
+            <select class="tag-quiet-end" data-tag-id="${t.id}">${hourOptions(hasQuiet ? t.quiet_end : 17)}</select>
+            <button class="tag-quiet-clear" data-tag-id="${t.id}" title="Remove quiet hours">×</button>
+          </div>` : ''}
+        </span>
       </span>`;
     }),
   ].join('');
@@ -463,31 +466,40 @@ function renderTagSidebar() {
         if (tag) tag.weekday_only = checked ? 1 : 0;
       } catch (e) {
         alert(e.message);
-        this.checked = !checked; // revert on failure
-      }
-    });
-  });
-
-  container.querySelectorAll('.tag-quiet-cb').forEach(cb => {
-    cb.addEventListener('change', async function () {
-      const tagId = parseInt(this.dataset.tagId, 10);
-      const checked = this.checked;
-      const qs = checked ? 9 : null;
-      const qe = checked ? 17 : null;
-      try {
-        await api('PATCH', `/tags/${tagId}`, { quiet_start: qs, quiet_end: qe });
-        const tag = allTags.find(t => t.id === tagId);
-        if (tag) { tag.quiet_start = qs; tag.quiet_end = qe; }
-        renderTagSidebar();
-      } catch (e) {
-        alert(e.message);
         this.checked = !checked;
       }
     });
   });
 
+  container.querySelectorAll('.tag-quiet-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const tagId = parseInt(btn.dataset.tagId, 10);
+      if (openQuietTagId === tagId) {
+        openQuietTagId = null;
+        renderTagSidebar();
+        return;
+      }
+      // If tag has no quiet hours yet, save defaults before opening
+      const tag = allTags.find(t => t.id === tagId);
+      if (tag && (tag.quiet_start === null || tag.quiet_end === null)) {
+        try {
+          await api('PATCH', `/tags/${tagId}`, { quiet_start: 9, quiet_end: 17 });
+          tag.quiet_start = 9;
+          tag.quiet_end = 17;
+        } catch (err) {
+          alert(err.message);
+          return;
+        }
+      }
+      openQuietTagId = tagId;
+      renderTagSidebar();
+    });
+  });
+
   container.querySelectorAll('.tag-quiet-start, .tag-quiet-end').forEach(sel => {
-    sel.addEventListener('change', async function () {
+    sel.addEventListener('change', async function (e) {
+      e.stopPropagation();
       const tagId = parseInt(this.dataset.tagId, 10);
       const tag = allTags.find(t => t.id === tagId);
       const startEl = container.querySelector(`.tag-quiet-start[data-tag-id="${tagId}"]`);
@@ -497,13 +509,37 @@ function renderTagSidebar() {
       try {
         await api('PATCH', `/tags/${tagId}`, { quiet_start: qs, quiet_end: qe });
         if (tag) { tag.quiet_start = qs; tag.quiet_end = qe; }
-      } catch (e) {
-        alert(e.message);
-        renderTagSidebar(); // revert
+      } catch (err) {
+        alert(err.message);
+        renderTagSidebar();
+      }
+    });
+  });
+
+  container.querySelectorAll('.tag-quiet-clear').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const tagId = parseInt(btn.dataset.tagId, 10);
+      const tag = allTags.find(t => t.id === tagId);
+      try {
+        await api('PATCH', `/tags/${tagId}`, { quiet_start: null, quiet_end: null });
+        if (tag) { tag.quiet_start = null; tag.quiet_end = null; }
+        openQuietTagId = null;
+        renderTagSidebar();
+      } catch (err) {
+        alert(err.message);
       }
     });
   });
 }
+
+// Close quiet-hours popout when clicking outside the sidebar
+document.addEventListener('click', (e) => {
+  if (openQuietTagId !== null && !e.target.closest('.tag-quiet-wrap')) {
+    openQuietTagId = null;
+    renderTagSidebar();
+  }
+});
 
 // ── Bulk bar ───────────────────────────────────────────────────────────────────
 function renderBulkBar() {

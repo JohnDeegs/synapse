@@ -721,28 +721,68 @@ html.light .tag-chip { background: #e8f0fe; color: var(--accent); }
 .tag-chip-wrap:has(.tag-weekday-cb:checked) .weekday-toggle { opacity: 1; }
 .weekday-toggle input { display: none; }
 
-.tag-quiet-toggle { margin-left: 1px; }
-.tag-chip-wrap:has(.tag-quiet-cb:checked) .tag-quiet-toggle { opacity: 1; }
-
-.tag-quiet-hours {
+.tag-quiet-wrap {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  margin-left: 2px;
 }
-.tag-quiet-hours select {
-  font-size: 10px;
-  padding: 1px 2px;
-  border-radius: 3px;
+
+.tag-quiet-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0.3;
+  font-size: 11px;
+  padding: 0 1px;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+.tag-quiet-btn:hover,
+.tag-quiet-btn.has-quiet { opacity: 1; }
+
+.tag-quiet-popout {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.tag-quiet-label {
+  font-size: 11px;
+  opacity: 0.6;
+}
+.tag-quiet-popout select {
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text);
   cursor: pointer;
 }
 .tag-quiet-sep {
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.6;
 }
+.tag-quiet-clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  opacity: 0.5;
+  padding: 0 2px;
+  line-height: 1;
+  color: var(--text);
+}
+.tag-quiet-clear:hover { opacity: 1; }
 
 .btn-edit-title,
 .btn-edit-desc {
