@@ -5,9 +5,11 @@ let token     = localStorage.getItem('synapse_token');
 let userEmail = localStorage.getItem('synapse_email');
 let allTasks  = [];
 let allTags   = [];
+let allProjects = [];
 let sortBy       = 'next_reminder';
 let filterStatus = 'active';
 let filterTag    = null; // null = all tags, number = specific tag id
+let filterProject = null; // null = all projects, 'none' = no project, number = specific project id
 let filterDue    = 'all'; // 'all' | 'today' | 'week' | 'month'
 let selectedTaskIds = new Set();
 let countdownTimer = null;
@@ -15,6 +17,10 @@ let autoRefreshTimer = null;
 let newTaskMDE = null; // EasyMDE instance for the new-task form (lazy-init)
 let newTaskDP  = null; // DatePicker instance for the new-task form (lazy-init)
 let openQuietTagId = null; // which tag's quiet-hours popout is open
+// Modal state
+let openModalTaskId = null;
+let modalMDE        = null;
+let modalDuePicker  = null;
 
 // ── Theme ──────────────────────────────────────────────────────────────────────
 function initTheme() {
@@ -78,8 +84,10 @@ async function register(email, password) {
 }
 
 function logout() {
-  token = null; userEmail = null; allTasks = []; allTags = []; filterTag = null;
+  token = null; userEmail = null; allTasks = []; allTags = []; allProjects = [];
+  filterTag = null; filterProject = null;
   selectedTaskIds.clear();
+  closeTaskModal();
   localStorage.removeItem('synapse_token');
   localStorage.removeItem('synapse_email');
   if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
@@ -193,10 +201,12 @@ async function createTask(title, priority, description, dueDate) {
 }
 
 async function patchTask(id, body) {
+  let freshTask = null;
   try {
     const updated = await api('PATCH', `/tasks/${id}`, body);
     const idx = allTasks.findIndex(t => t.id === id);
     if (idx !== -1) { updated.tags = allTasks[idx].tags || []; allTasks[idx] = updated; }
+    freshTask = updated;
   } catch (e) {
     if (e.status === 404) {
       allTasks = allTasks.filter(t => t.id !== id);
@@ -209,6 +219,14 @@ async function patchTask(id, body) {
   if (body.action === 'checkin' || body.action === 'complete') {
     fetchAndRenderHealthGrid();
   }
+  // If modal is open for this task, refresh it
+  if (openModalTaskId === id) {
+    if (freshTask) {
+      refreshModalAfterPatch(freshTask, body.action);
+    } else {
+      closeTaskModal();
+    }
+  }
 }
 
 async function deleteTask(id) {
@@ -219,8 +237,29 @@ async function deleteTask(id) {
   }
   allTasks = allTasks.filter(t => t.id !== id);
   selectedTaskIds.delete(id);
+  if (openModalTaskId === id) closeTaskModal();
   renderTasks();
   updateStats();
+}
+
+// ── Project API ────────────────────────────────────────────────────────────────
+async function fetchProjects() {
+  allProjects = await api('GET', '/projects');
+  renderProjectSidebar();
+}
+
+async function createProject(name) {
+  const project = await api('POST', '/projects', { name });
+  allProjects.push(project);
+  allProjects.sort((a, b) => a.name.localeCompare(b.name));
+  renderProjectSidebar();
+}
+
+async function deleteProject(id) {
+  await api('DELETE', `/projects/${id}`);
+  allProjects = allProjects.filter(p => p.id !== id);
+  if (filterProject === id) { filterProject = null; renderTasks(); }
+  renderProjectSidebar();
 }
 
 // ── Bulk actions ───────────────────────────────────────────────────────────────
@@ -396,6 +435,10 @@ function getSortedFilteredTasks() {
     if (filterTag === null) return true;
     if (filterTag === 'untagged') return (t.tags || []).length === 0;
     return (t.tags || []).some(tag => tag.id === filterTag);
+  }).filter(t => {
+    if (filterProject === null) return true;
+    if (filterProject === 'none') return !t.project_id;
+    return t.project_id === filterProject;
   }).filter(matchesDueFilter);
   return filtered.sort((a, b) => {
     if (sortBy === 'priority')    return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
@@ -541,6 +584,41 @@ document.addEventListener('click', (e) => {
   }
 });
 
+// ── Project sidebar ────────────────────────────────────────────────────────────
+function renderProjectSidebar() {
+  const container = document.getElementById('project-filters');
+  if (!container) return;
+  const chips = [
+    `<button class="tag-filter-chip ${filterProject === null ? 'active' : ''}" data-project-id="all">All</button>`,
+    `<button class="tag-filter-chip ${filterProject === 'none' ? 'active' : ''}" data-project-id="none">No project</button>`,
+    ...allProjects.map(p => `
+      <span class="tag-chip-wrap">
+        <button class="tag-filter-chip ${filterProject === p.id ? 'active' : ''}" data-project-id="${p.id}">${esc(p.name)}</button>
+        <button class="btn-delete-project btn-text" data-project-id="${p.id}" title="Delete project">×</button>
+      </span>
+    `),
+  ].join('');
+  container.innerHTML = chips;
+  container.querySelectorAll('.tag-filter-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const val = btn.dataset.projectId;
+      filterProject = val === 'all' ? null : val === 'none' ? 'none' : parseInt(val, 10);
+      selectedTaskIds.clear();
+      renderProjectSidebar();
+      renderTasks();
+    });
+  });
+  container.querySelectorAll('.btn-delete-project').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const pid = parseInt(btn.dataset.projectId, 10);
+      const proj = allProjects.find(p => p.id === pid);
+      if (!confirm(`Delete project "${proj?.name}"? Tasks will be unassigned.`)) return;
+      try { await deleteProject(pid); } catch (err) { alert(err.message); }
+    });
+  });
+}
+
 // ── Bulk bar ───────────────────────────────────────────────────────────────────
 function renderBulkBar() {
   const bar = document.getElementById('bulk-bar');
@@ -568,285 +646,135 @@ function esc(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// ── Card rendering ─────────────────────────────────────────────────────────────
-function renderCard(task) {
-  const el = document.createElement('div');
-  el.className = `task-card status-${task.status}`;
-  el.dataset.id = task.id;
+// ── Task detail modal ──────────────────────────────────────────────────────────
 
-  const isActive = task.status === 'active';
-  const isSelected = selectedTaskIds.has(task.id);
+function closeTaskModal() {
+  if (modalMDE) { try { modalMDE.toTextArea(); } catch {} modalMDE = null; }
+  if (modalDuePicker) { modalDuePicker = null; }
+  document.getElementById('task-modal-overlay').classList.add('hidden');
+  openModalTaskId = null;
+}
 
-  const descHtml = task.description
-    ? marked.parse(task.description)
-    : `<span class="no-desc">No description — click to add</span>`;
+function openTaskModal(task) {
+  openModalTaskId = task.id;
+  const overlay = document.getElementById('task-modal-overlay');
+  overlay.classList.remove('hidden');
 
-  // Tags: chips with remove button
-  const tagsHtml = (task.tags || []).map(t =>
-    `<span class="tag-chip"><span>${esc(t.name)}</span><button class="tag-remove" data-tag-id="${t.id}" title="Remove tag">×</button></span>`
-  ).join('');
-
-  // Tag autocomplete input
-  const availableTags = allTags.filter(t => !(task.tags || []).some(tt => tt.id === t.id));
-  const tagPickerHtml = allTags.length === 0
-    ? `<span class="tag-hint">← Create a tag</span>`
-    : availableTags.length > 0
-      ? `<div class="tag-autocomplete"><input class="tag-ac-input" placeholder="Add tag…" autocomplete="off"><div class="tag-ac-dropdown hidden"></div></div>`
-      : '';
-
-  const actionsHtml = isActive ? `
-    <button class="btn-action btn-complete">✓ Complete</button>
-    <button class="btn-action btn-checkin">↻ Check-in</button>
-    <button class="btn-action btn-snooze">⏰ Snooze 1h</button>
-  ` : '';
-
-  const dueHtml = isActive
-    ? `<button type="button" class="task-due-btn">${task.due_date ? `📅 ${task.due_date}` : '📅 Set due date'}</button>`
-    : task.due_date
-      ? `<span class="task-due">📅 ${task.due_date}</span>`
-      : '';
-
-  el.innerHTML = `
-    <div class="card-header">
-      <input type="checkbox" class="task-checkbox" ${isSelected ? 'checked' : ''}>
-      ${isActive
-        ? `<select class="priority-select pp${task.priority.toLowerCase()}" title="Change priority">
-             ${['P0','P1','P2','P3','P4'].map(p => `<option value="${p}"${p === task.priority ? ' selected' : ''}>${p}</option>`).join('')}
-           </select>`
-        : `<span class="priority-badge pp${task.priority.toLowerCase()}">${task.priority}</span>`
+  // Title
+  const titleWrap = document.getElementById('modal-title-wrap');
+  titleWrap.innerHTML = `<span class="modal-title-display">${esc(task.title)}</span><button class="btn-icon btn-edit-modal-title" title="Edit title">✎</button>`;
+  titleWrap.querySelector('.btn-edit-modal-title').addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'text'; input.value = task.title; input.className = 'modal-title-input';
+    titleWrap.innerHTML = '';
+    titleWrap.appendChild(input);
+    input.focus(); input.select();
+    const save = async () => {
+      const newTitle = input.value.trim();
+      if (newTitle && newTitle !== task.title) {
+        try { await patchTask(task.id, { action: 'update', title: newTitle, description: task.description }); }
+        catch (err) { alert('Failed: ' + err.message); }
+      } else {
+        titleWrap.innerHTML = `<span class="modal-title-display">${esc(task.title)}</span><button class="btn-icon btn-edit-modal-title" title="Edit title">✎</button>`;
       }
-      <span class="task-title">${esc(task.title)}</span>
-      ${isActive ? `<button class="btn-edit-title" title="Edit title">✎</button>` : ''}
-      <span class="${countdownClass(task.next_reminder)}" data-countdown="${task.next_reminder}">
-        ${formatCountdown(task.next_reminder)}
-      </span>
-      ${dueHtml}
-      <span class="task-status-badge">${task.status}</span>
-    </div>
-    <div class="card-desc">
-      <div class="desc-view">
-        ${descHtml}
-        ${isActive ? `<button class="btn-edit-desc" title="Edit description">✎</button>` : ''}
-      </div>
-      <div class="desc-editor-wrapper hidden">
-        <textarea class="desc-edit-input"></textarea>
-        <div class="desc-editor-actions">
-          <button class="btn-save-desc btn-primary">Save</button>
-          <button class="btn-cancel-desc btn-text">Cancel</button>
+    };
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } if (e.key === 'Escape') closeTaskModal(); });
+  });
+
+  // Close button
+  document.getElementById('modal-close').onclick = closeTaskModal;
+
+  renderModalMeta(task);
+  renderModalDescription(task);
+  renderModalTodos(task);
+  renderModalCheckin(task);
+  renderModalHistory(task.id);
+  renderModalDeps(task);
+  renderModalActions(task);
+}
+
+function renderModalMeta(task) {
+  const isActive = task.status === 'active';
+  const availableTags = allTags.filter(t => !(task.tags || []).some(tt => tt.id === t.id));
+  const tagsHtml = (task.tags || []).map(t =>
+    `<span class="tag-chip"><span>${esc(t.name)}</span><button class="tag-remove-modal" data-tag-id="${t.id}" title="Remove tag">×</button></span>`
+  ).join('');
+  const tagPickerHtml = availableTags.length > 0
+    ? `<div class="tag-autocomplete"><input class="modal-tag-ac-input" placeholder="Add tag…" autocomplete="off"><div class="tag-ac-dropdown hidden"></div></div>`
+    : '';
+  const projectOptions = allProjects.map(p =>
+    `<option value="${p.id}" ${task.project_id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`
+  ).join('');
+  const section = document.getElementById('modal-meta-row');
+  section.innerHTML = `
+    <div class="modal-meta-grid">
+      <div class="modal-meta-item">
+        <span class="modal-meta-label">Priority</span>
+        <div class="priority-lock-group">
+          ${isActive ? `<select class="modal-priority-select pp${task.priority.toLowerCase()}">
+            ${['P0','P1','P2','P3','P4'].map(p => `<option value="${p}"${p===task.priority?' selected':''}>${p}</option>`).join('')}
+          </select>` : `<span class="priority-badge pp${task.priority.toLowerCase()}">${task.priority}</span>`}
+          ${task.priority_locked
+            ? `<button class="btn-unlock-priority btn-icon" title="Click to re-enable auto-escalation">🔒</button>`
+            : `<span class="priority-auto-icon" title="Priority auto-escalates when overdue">🔓</span>`}
         </div>
       </div>
-    </div>
-    <div class="card-footer">
-      <div class="card-tags">
-        ${tagsHtml}
-        ${tagPickerHtml}
+      <div class="modal-meta-item">
+        <span class="modal-meta-label">Status</span>
+        <span class="task-status-badge">${task.status}</span>
+        ${task.is_blocked ? '<span class="frozen-badge" title="Frozen: waiting on a blocking task">❄️ Frozen</span>' : ''}
       </div>
-      <div class="card-actions">
-        ${actionsHtml}
-        <button class="btn-action btn-history">⟳ History</button>
-        <button class="btn-action btn-delete">✕ Delete</button>
+      <div class="modal-meta-item">
+        <span class="modal-meta-label">Due date</span>
+        ${isActive
+          ? `<button class="modal-due-btn dp-trigger">${task.due_date ? `📅 ${task.due_date}` : '📅 Set due date'}</button>`
+          : `<span>${task.due_date ? `📅 ${task.due_date}` : '—'}</span>`}
       </div>
-    </div>
-    <div class="checkin-area hidden">
-      <textarea class="checkin-note" placeholder="Status update…" rows="2"></textarea>
-      <div class="checkin-controls">
-        <select class="checkin-priority-select pp${task.priority.toLowerCase()}">
-          ${['P0','P1','P2','P3','P4'].map(p => `<option value="${p}"${p === task.priority ? ' selected' : ''}>${p}</option>`).join('')}
+      <div class="modal-meta-item">
+        <span class="modal-meta-label">Next reminder</span>
+        <span class="${countdownClass(task.next_reminder)}" data-countdown="${task.next_reminder}">${formatCountdown(task.next_reminder)}</span>
+      </div>
+      <div class="modal-meta-item modal-meta-tags">
+        <span class="modal-meta-label">Tags</span>
+        <div class="card-tags">${tagsHtml}${tagPickerHtml}</div>
+      </div>
+      <div class="modal-meta-item">
+        <span class="modal-meta-label">Project</span>
+        <select class="modal-project-select">
+          <option value="">— None —</option>
+          ${projectOptions}
         </select>
-        <button class="btn-primary btn-submit-checkin">Submit check-in</button>
       </div>
     </div>
-    <div class="checkin-history hidden"></div>
   `;
 
-  // ── Checkbox ──────────────────────────────────────────────────────────────
-  el.querySelector('.task-checkbox').addEventListener('change', e => {
-    if (e.target.checked) selectedTaskIds.add(task.id);
-    else selectedTaskIds.delete(task.id);
-    renderBulkBar();
-    updateSelectAll();
-  });
-
-  // ── Inline editing: title ─────────────────────────────────────────────────
-  if (isActive) {
-    const titleEl = el.querySelector('.task-title');
-
-    // The ✎ button opens the inline title editor
-    el.querySelector('.btn-edit-title')?.addEventListener('click', e => {
-      e.stopPropagation();
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.value = task.title;
-      input.className = 'title-edit-input';
-      titleEl.replaceWith(input);
-      input.focus();
-      input.select();
-
-      const save = async () => {
-        const newTitle = input.value.trim();
-        if (newTitle && newTitle !== task.title) {
-          try {
-            await patchTask(task.id, { action: 'update', title: newTitle, description: task.description });
-          } catch (err) {
-            alert('Failed to save: ' + err.message);
-            renderTasks();
-          }
-        } else {
-          renderTasks();
-        }
-      };
-      input.addEventListener('blur', save);
-      input.addEventListener('keydown', e => {
-        if (e.key === 'Enter')  { e.preventDefault(); input.blur(); }
-        if (e.key === 'Escape') renderTasks();
-      });
-    });
-  }
-
-  // ── Priority select ───────────────────────────────────────────────────
-  el.querySelector('.priority-select')?.addEventListener('change', async function () {
-    const sel = this;
+  // Priority select
+  section.querySelector('.modal-priority-select')?.addEventListener('change', async function () {
     const prev = task.priority;
-    sel.className = `priority-select pp${this.value.toLowerCase()}`;
-    try {
-      await patchTask(task.id, { action: 'update', priority: this.value });
-    } catch (err) { alert(err.message); sel.value = prev; sel.className = `priority-select pp${prev.toLowerCase()}`; }
+    this.className = `modal-priority-select pp${this.value.toLowerCase()}`;
+    try { await patchTask(task.id, { action: 'update', priority: this.value }); }
+    catch (err) { alert(err.message); this.value = prev; this.className = `modal-priority-select pp${prev.toLowerCase()}`; }
   });
 
-  // ── Due date picker ───────────────────────────────────────────────────
-  if (isActive) {
-    const dueBtn = el.querySelector('.task-due-btn');
-    if (dueBtn) {
-      new DatePicker(dueBtn, async date => {
-        dueBtn.textContent = date ? `📅 ${date}` : '📅 Set due date';
-        try {
-          await patchTask(task.id, { action: 'update', title: task.title, description: task.description, due_date: date });
-        } catch (err) { alert('Failed: ' + err.message); renderTasks(); }
-      }, task.due_date);
-    }
+  // Unlock priority
+  section.querySelector('.btn-unlock-priority')?.addEventListener('click', async () => {
+    try { await patchTask(task.id, { action: 'unlock' }); }
+    catch (err) { alert(err.message); }
+  });
+
+  // Due date picker
+  const dueBtn = section.querySelector('.modal-due-btn');
+  if (dueBtn) {
+    modalDuePicker = new DatePicker(dueBtn, async date => {
+      dueBtn.textContent = date ? `📅 ${date}` : '📅 Set due date';
+      try { await patchTask(task.id, { action: 'update', title: task.title, description: task.description, due_date: date }); }
+      catch (err) { alert('Failed: ' + err.message); }
+    }, task.due_date);
   }
 
-  // ── Inline editing: description (EasyMDE) ────────────────────────────────
-  if (isActive) {
-    const descView    = el.querySelector('.desc-view');
-    const descWrapper = el.querySelector('.desc-editor-wrapper');
-    const descTextarea = el.querySelector('.desc-edit-input');
-    let mde = null;
-
-    const openEditor = () => {
-      descView.classList.add('hidden');
-      descWrapper.classList.remove('hidden');
-      if (!mde) {
-        mde = makeMDE(descTextarea, { initialValue: task.description });
-      }
-      mde.codemirror.focus();
-    };
-
-    const closeEditor = () => {
-      if (mde) { mde.toTextArea(); mde = null; }
-      descWrapper.classList.add('hidden');
-      descView.classList.remove('hidden');
-    };
-
-    el.querySelector('.btn-edit-desc')?.addEventListener('click', openEditor);
-
-    el.querySelector('.btn-save-desc').addEventListener('click', async () => {
-      const newDesc = mde ? mde.value() : descTextarea.value;
-      if (newDesc !== task.description) {
-        try {
-          await patchTask(task.id, { action: 'update', title: task.title, description: newDesc });
-        } catch (err) { alert('Failed to save: ' + err.message); closeEditor(); }
-      } else {
-        closeEditor();
-      }
-    });
-
-    el.querySelector('.btn-cancel-desc').addEventListener('click', closeEditor);
-  }
-
-  // ── Card actions ──────────────────────────────────────────────────────────
-  el.querySelector('.btn-complete')?.addEventListener('click', () =>
-    patchTask(task.id, { action: 'complete' }).catch(e => alert(e.message)));
-
-  el.querySelector('.btn-snooze')?.addEventListener('click', () =>
-    patchTask(task.id, { action: 'snooze', minutes: 60 }).catch(e => alert(e.message)));
-
-  el.querySelector('.btn-delete').addEventListener('click', async () => {
-    if (confirm(`Delete "${task.title}"?`)) {
-      await deleteTask(task.id).catch(e => alert(e.message));
-    }
-  });
-
-  // ── Check-in ──────────────────────────────────────────────────────────────
-  const checkinArea = el.querySelector('.checkin-area');
-  const checkinNote = el.querySelector('.checkin-note');
-  const headerPrioritySel = el.querySelector('.priority-select');
-
-  const openCheckin = () => {
-    checkinArea.classList.remove('hidden');
-    if (headerPrioritySel) headerPrioritySel.disabled = true;
-    checkinNote.focus();
-  };
-  const closeCheckin = () => {
-    checkinArea.classList.add('hidden');
-    if (headerPrioritySel) headerPrioritySel.disabled = false;
-  };
-
-  el.querySelector('.btn-checkin')?.addEventListener('click', () => {
-    checkinArea.classList.contains('hidden') ? openCheckin() : closeCheckin();
-  });
-
-  // Clicking anywhere on the card that isn't already interactive toggles check-in
-  if (isActive) {
-    el.addEventListener('click', e => {
-      if (e.target.closest('button, select, input, textarea, a, label, .checkin-area, .checkin-history')) return;
-      checkinArea.classList.contains('hidden') ? openCheckin() : closeCheckin();
-    });
-  }
-
-  el.querySelector('.checkin-priority-select')?.addEventListener('change', function () {
-    this.className = `checkin-priority-select pp${this.value.toLowerCase()}`;
-  });
-
-  el.querySelector('.btn-submit-checkin')?.addEventListener('click', async () => {
-    const note = checkinNote.value.trim();
-    const priority = el.querySelector('.checkin-priority-select')?.value || task.priority;
-    await patchTask(task.id, { action: 'checkin', note, priority }).catch(e => alert(e.message));
-  });
-
-  // ── Check-in history ──────────────────────────────────────────────────────
-  const historySection = el.querySelector('.checkin-history');
-  let historyLoaded = false;
-
-  el.querySelector('.btn-history').addEventListener('click', async () => {
-    if (!historySection.classList.contains('hidden')) {
-      historySection.classList.add('hidden');
-      return;
-    }
-    historySection.classList.remove('hidden');
-    if (historyLoaded) return;
-
-    historySection.innerHTML = '<span class="loading-small">Loading…</span>';
-    try {
-      const checkins = await api('GET', `/tasks/${task.id}/checkins`);
-      historyLoaded = true;
-      if (checkins.length === 0) {
-        historySection.innerHTML = '<span class="no-history">No check-in history yet.</span>';
-      } else {
-        historySection.innerHTML = checkins.map(c => `
-          <div class="history-item">
-            <span class="history-time">${new Date(c.created_at).toLocaleString()}</span>
-            <span class="history-note">${c.note ? esc(c.note) : '<em>No note</em>'}</span>
-          </div>
-        `).join('');
-      }
-    } catch (e) {
-      historySection.innerHTML = `<span class="error-msg">Failed to load history</span>`;
-    }
-  });
-
-  // ── Tag removal ───────────────────────────────────────────────────────────
-  el.querySelectorAll('.tag-remove').forEach(btn => {
+  // Tag removal
+  section.querySelectorAll('.tag-remove-modal').forEach(btn => {
     btn.addEventListener('click', async e => {
       e.stopPropagation();
       const tagId = parseInt(btn.dataset.tagId, 10);
@@ -855,74 +783,420 @@ function renderCard(task) {
         const t = allTasks.find(t => t.id === task.id);
         if (t) t.tags = (t.tags || []).filter(tt => tt.id !== tagId);
         renderTasks();
+        const fresh = allTasks.find(t => t.id === task.id);
+        if (fresh) renderModalMeta(fresh);
       } catch (e) { alert(e.message); }
     });
   });
 
-  // ── Tag autocomplete ──────────────────────────────────────────────────────
-  const acInput    = el.querySelector('.tag-ac-input');
-  const acDropdown = el.querySelector('.tag-ac-dropdown');
+  // Tag autocomplete
+  const acInput    = section.querySelector('.modal-tag-ac-input');
+  const acDropdown = section.querySelector('.tag-ac-dropdown');
   if (acInput && acDropdown) {
     let activeIdx = -1;
-
-    const getMatches = () => {
-      const q = acInput.value.toLowerCase().trim();
-      return q ? availableTags.filter(t => t.name.toLowerCase().includes(q)) : availableTags;
-    };
-
+    const getMatches = () => { const q = acInput.value.toLowerCase().trim(); return q ? availableTags.filter(t => t.name.toLowerCase().includes(q)) : availableTags; };
     const assignTag = async tagId => {
-      acInput.value = '';
-      acDropdown.classList.add('hidden');
+      acInput.value = ''; acDropdown.classList.add('hidden');
       try {
         await api('POST', `/tasks/${task.id}/tags`, { tagId });
         const tag = allTags.find(t => t.id === tagId);
         const t   = allTasks.find(t => t.id === task.id);
         if (tag && t) t.tags = [...(t.tags || []), tag];
         renderTasks();
+        const fresh = allTasks.find(t => t.id === task.id);
+        if (fresh) renderModalMeta(fresh);
       } catch (e) { alert(e.message); }
     };
-
     const renderDropdown = () => {
       const matches = getMatches();
       if (matches.length === 0) { acDropdown.classList.add('hidden'); return; }
       activeIdx = -1;
-      acDropdown.innerHTML = matches.map(t =>
-        `<div class="tag-ac-item" data-tag-id="${t.id}">${esc(t.name)}</div>`
-      ).join('');
+      acDropdown.innerHTML = matches.map(t => `<div class="tag-ac-item" data-tag-id="${t.id}">${esc(t.name)}</div>`).join('');
       const rect = acInput.getBoundingClientRect();
       acDropdown.style.top  = `${rect.bottom + 3}px`;
       acDropdown.style.left = `${rect.left}px`;
       acDropdown.classList.remove('hidden');
       acDropdown.querySelectorAll('.tag-ac-item').forEach(item => {
-        item.addEventListener('mousedown', e => {
-          e.preventDefault(); // keep focus on input until we're done
-          assignTag(parseInt(item.dataset.tagId, 10));
-        });
+        item.addEventListener('mousedown', e => { e.preventDefault(); assignTag(parseInt(item.dataset.tagId, 10)); });
       });
     };
-
     acInput.addEventListener('focus', renderDropdown);
     acInput.addEventListener('input', renderDropdown);
     acInput.addEventListener('blur', () => setTimeout(() => acDropdown.classList.add('hidden'), 120));
     acInput.addEventListener('keydown', e => {
       const items = [...acDropdown.querySelectorAll('.tag-ac-item')];
       if (e.key === 'Escape') { acDropdown.classList.add('hidden'); acInput.blur(); }
-      else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        activeIdx = Math.min(activeIdx + 1, items.length - 1);
-        items.forEach((it, i) => it.classList.toggle('active', i === activeIdx));
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        activeIdx = Math.max(activeIdx - 1, 0);
-        items.forEach((it, i) => it.classList.toggle('active', i === activeIdx));
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (activeIdx >= 0 && items[activeIdx]) {
-          assignTag(parseInt(items[activeIdx].dataset.tagId, 10));
-        }
-      }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = Math.min(activeIdx + 1, items.length - 1); items.forEach((it, i) => it.classList.toggle('active', i === activeIdx)); }
+      else if (e.key === 'ArrowUp')   { e.preventDefault(); activeIdx = Math.max(activeIdx - 1, 0); items.forEach((it, i) => it.classList.toggle('active', i === activeIdx)); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (activeIdx >= 0 && items[activeIdx]) assignTag(parseInt(items[activeIdx].dataset.tagId, 10)); }
     });
   }
+
+  // Project select
+  const projSelect = section.querySelector('.modal-project-select');
+  projSelect?.addEventListener('change', async function () {
+    const pid = this.value ? parseInt(this.value, 10) : null;
+    try {
+      await patchTask(task.id, { action: 'update', project_id: pid });
+    } catch (err) { alert(err.message); this.value = task.project_id || ''; }
+  });
+}
+
+function renderModalDescription(task) {
+  const isActive = task.status === 'active';
+  const descHtml = task.description ? marked.parse(task.description) : '<span class="no-desc">No description yet.</span>';
+  const section = document.getElementById('modal-description-section');
+  section.innerHTML = `
+    <div class="modal-section-header">Description ${isActive ? '<button class="btn-icon btn-edit-modal-desc" title="Edit">✎</button>' : ''}</div>
+    <div class="modal-desc-view">${descHtml}</div>
+    <div class="modal-desc-editor hidden">
+      <textarea class="modal-desc-textarea"></textarea>
+      <div class="modal-desc-actions">
+        <button class="btn-primary btn-save-modal-desc">Save</button>
+        <button class="btn-text btn-cancel-modal-desc">Cancel</button>
+      </div>
+    </div>
+  `;
+  if (!isActive) return;
+  const descView    = section.querySelector('.modal-desc-view');
+  const descEditor  = section.querySelector('.modal-desc-editor');
+  const descTextarea = section.querySelector('.modal-desc-textarea');
+  const openEditor = () => {
+    descView.classList.add('hidden');
+    descEditor.classList.remove('hidden');
+    if (!modalMDE) {
+      modalMDE = makeMDE(descTextarea, { initialValue: task.description });
+    }
+    modalMDE.codemirror.focus();
+  };
+  const closeEditor = () => {
+    if (modalMDE) { modalMDE.toTextArea(); modalMDE = null; }
+    descEditor.classList.add('hidden');
+    descView.classList.remove('hidden');
+  };
+  section.querySelector('.btn-edit-modal-desc')?.addEventListener('click', openEditor);
+  section.querySelector('.btn-save-modal-desc').addEventListener('click', async () => {
+    const newDesc = modalMDE ? modalMDE.value() : descTextarea.value;
+    closeEditor();
+    if (newDesc !== task.description) {
+      try { await patchTask(task.id, { action: 'update', title: task.title, description: newDesc }); }
+      catch (err) { alert('Failed: ' + err.message); }
+    }
+  });
+  section.querySelector('.btn-cancel-modal-desc').addEventListener('click', closeEditor);
+}
+
+function renderModalTodos(task) {
+  const section = document.getElementById('modal-todos-section');
+  section.innerHTML = `
+    <div class="modal-section-header">Todos</div>
+    <div id="modal-todo-list" class="todo-list"><span class="loading-small">Loading…</span></div>
+    ${task.status === 'active' ? `
+    <div class="todo-add-row">
+      <input class="todo-new-input" placeholder="Add a todo…" maxlength="1000">
+      <button class="btn-add-todo btn-primary">+</button>
+    </div>` : ''}
+  `;
+  // Load todos
+  api('GET', `/tasks/${task.id}/todos`).then(todos => {
+    renderTodoList(task.id, todos, task.status === 'active');
+  }).catch(() => {
+    document.getElementById('modal-todo-list').innerHTML = '<span class="error-msg">Failed to load</span>';
+  });
+  // Add todo
+  if (task.status === 'active') {
+    const addTodo = async () => {
+      const input = section.querySelector('.todo-new-input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      try {
+        const todo = await api('POST', `/tasks/${task.id}/todos`, { text });
+        const listEl = document.getElementById('modal-todo-list');
+        const todos = [...listEl.querySelectorAll('.todo-item')].map(el => ({
+          id: parseInt(el.dataset.todoId),
+          text: el.querySelector('.todo-text').textContent,
+          done: el.querySelector('.todo-check').checked ? 1 : 0,
+        }));
+        todos.push(todo);
+        renderTodoList(task.id, todos, true);
+      } catch (e) { alert(e.message); }
+    };
+    section.querySelector('.btn-add-todo').addEventListener('click', addTodo);
+    section.querySelector('.todo-new-input').addEventListener('keydown', e => { if (e.key === 'Enter') addTodo(); });
+  }
+}
+
+function renderTodoList(taskId, todos, canEdit) {
+  const listEl = document.getElementById('modal-todo-list');
+  if (!listEl) return;
+  if (todos.length === 0) {
+    listEl.innerHTML = '<span class="no-history">No todos yet.</span>';
+    return;
+  }
+  listEl.innerHTML = todos.map(todo => `
+    <div class="todo-item" data-todo-id="${todo.id}">
+      <input type="checkbox" class="todo-check" ${todo.done ? 'checked' : ''} ${canEdit ? '' : 'disabled'}>
+      <span class="todo-text ${todo.done ? 'todo-done' : ''}">${esc(todo.text)}</span>
+      ${canEdit ? `<button class="btn-todo-delete btn-icon" title="Delete">×</button>` : ''}
+    </div>
+  `).join('');
+  if (!canEdit) return;
+  listEl.querySelectorAll('.todo-check').forEach(cb => {
+    cb.addEventListener('change', async function () {
+      const todoId = parseInt(this.closest('.todo-item').dataset.todoId);
+      try {
+        await api('PATCH', `/tasks/${taskId}/todos/${todoId}`, { done: this.checked ? 1 : 0 });
+        this.closest('.todo-item').querySelector('.todo-text').classList.toggle('todo-done', this.checked);
+      } catch (e) { alert(e.message); this.checked = !this.checked; }
+    });
+  });
+  listEl.querySelectorAll('.btn-todo-delete').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const todoId = parseInt(btn.closest('.todo-item').dataset.todoId);
+      try {
+        await api('DELETE', `/tasks/${taskId}/todos/${todoId}`);
+        const remaining = todos.filter(t => t.id !== todoId);
+        renderTodoList(taskId, remaining, canEdit);
+      } catch (e) { alert(e.message); }
+    });
+  });
+}
+
+function renderModalCheckin(task) {
+  const section = document.getElementById('modal-checkin-section');
+  if (task.status !== 'active') { section.innerHTML = ''; return; }
+  section.innerHTML = `
+    <div class="modal-section-header">Check in</div>
+    <textarea class="modal-checkin-note" placeholder="Status update…" rows="2"></textarea>
+    <div class="checkin-controls">
+      <select class="modal-checkin-priority pp${task.priority.toLowerCase()}">
+        ${['P0','P1','P2','P3','P4'].map(p => `<option value="${p}"${p===task.priority?' selected':''}>${p}</option>`).join('')}
+      </select>
+      <button class="btn-primary btn-modal-submit-checkin">Submit check-in</button>
+    </div>
+  `;
+  section.querySelector('.modal-checkin-priority').addEventListener('change', function () {
+    this.className = `modal-checkin-priority pp${this.value.toLowerCase()}`;
+  });
+  section.querySelector('.btn-modal-submit-checkin').addEventListener('click', async () => {
+    const note = section.querySelector('.modal-checkin-note').value.trim();
+    const priority = section.querySelector('.modal-checkin-priority').value;
+    try {
+      await patchTask(task.id, { action: 'checkin', note, priority });
+      section.querySelector('.modal-checkin-note').value = '';
+    } catch (e) { alert(e.message); }
+  });
+}
+
+function renderModalHistory(taskId) {
+  const section = document.getElementById('modal-history-section');
+  section.innerHTML = `<div class="modal-section-header">Check-in history</div><div id="modal-history-list"><span class="loading-small">Loading…</span></div>`;
+  api('GET', `/tasks/${taskId}/checkins`).then(checkins => {
+    const listEl = document.getElementById('modal-history-list');
+    if (!listEl) return;
+    if (checkins.length === 0) {
+      listEl.innerHTML = '<span class="no-history">No check-ins yet.</span>';
+    } else {
+      listEl.innerHTML = checkins.reverse().map(c => `
+        <div class="history-item">
+          <span class="history-time">${new Date(c.created_at).toLocaleString()}</span>
+          <span class="history-note">${c.note ? esc(c.note) : '<em>No note</em>'}</span>
+        </div>
+      `).join('');
+    }
+  }).catch(() => {
+    const listEl = document.getElementById('modal-history-list');
+    if (listEl) listEl.innerHTML = '<span class="error-msg">Failed to load history</span>';
+  });
+}
+
+function renderModalDeps(task) {
+  const section = document.getElementById('modal-deps-section');
+  section.innerHTML = `<div class="modal-section-header">Dependencies</div><div id="modal-deps-content"><span class="loading-small">Loading…</span></div>`;
+  api('GET', `/tasks/${task.id}/dependencies`).then(deps => {
+    const el = document.getElementById('modal-deps-content');
+    if (!el) return;
+    const blockedBy = deps.filter(d => d.direction === 'blocked_by');
+    const blocking  = deps.filter(d => d.direction === 'blocking');
+    const blockedByHtml = blockedBy.length === 0
+      ? '<span class="no-history">None</span>'
+      : blockedBy.map(d => `
+          <div class="dep-item">
+            <span class="priority-badge pp${d.priority.toLowerCase()}">${d.priority}</span>
+            <span>${esc(d.title)}</span>
+            <span class="dep-status">${d.status}</span>
+            ${task.status === 'active' ? `<button class="btn-icon btn-remove-dep" data-blocking-id="${d.id}" title="Remove dependency">×</button>` : ''}
+          </div>`).join('');
+    const blockingHtml = blocking.length === 0
+      ? '<span class="no-history">None</span>'
+      : blocking.map(d => `
+          <div class="dep-item">
+            <span class="priority-badge pp${d.priority.toLowerCase()}">${d.priority}</span>
+            <span>${esc(d.title)}</span>
+            <span class="dep-status">${d.status}</span>
+          </div>`).join('');
+    el.innerHTML = `
+      <div class="deps-group">
+        <h4 class="deps-group-label">Blocked by (must finish first)</h4>
+        <div class="deps-list">${blockedByHtml}</div>
+        ${task.status === 'active' ? `
+        <div class="dep-add-row">
+          <input class="dep-search-input" placeholder="Search tasks to add blocker…" autocomplete="off">
+          <div class="dep-search-dropdown hidden"></div>
+        </div>` : ''}
+      </div>
+      <div class="deps-group">
+        <h4 class="deps-group-label">Blocking (this task blocks)</h4>
+        <div class="deps-list">${blockingHtml}</div>
+      </div>
+    `;
+    // Remove dependency
+    el.querySelectorAll('.btn-remove-dep').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const blockingId = parseInt(btn.dataset.blockingId);
+        try { await api('DELETE', `/tasks/${task.id}/dependencies/${blockingId}`); renderModalDeps(task); renderTasks(); }
+        catch (e) { alert(e.message); }
+      });
+    });
+    // Add dependency search
+    const searchInput = el.querySelector('.dep-search-input');
+    const searchDrop  = el.querySelector('.dep-search-dropdown');
+    if (searchInput && searchDrop) {
+      const renderDepDropdown = () => {
+        const q = searchInput.value.toLowerCase().trim();
+        const results = allTasks.filter(t =>
+          t.id !== task.id && t.status === 'active' &&
+          !blockedBy.some(d => d.id === t.id) &&
+          (q ? t.title.toLowerCase().includes(q) : true)
+        ).slice(0, 8);
+        if (results.length === 0) { searchDrop.classList.add('hidden'); return; }
+        searchDrop.innerHTML = results.map(t =>
+          `<div class="tag-ac-item" data-task-id="${t.id}">[${t.priority}] ${esc(t.title)}</div>`
+        ).join('');
+        searchDrop.classList.remove('hidden');
+        searchDrop.querySelectorAll('.tag-ac-item').forEach(item => {
+          item.addEventListener('mousedown', async e => {
+            e.preventDefault();
+            const blockingId = parseInt(item.dataset.taskId);
+            try { await api('POST', `/tasks/${task.id}/dependencies`, { blockingTaskId: blockingId }); renderModalDeps(task); renderTasks(); }
+            catch (err) { alert(err.message); }
+            searchInput.value = ''; searchDrop.classList.add('hidden');
+          });
+        });
+      };
+      searchInput.addEventListener('input', renderDepDropdown);
+      searchInput.addEventListener('focus', renderDepDropdown);
+      searchInput.addEventListener('blur', () => setTimeout(() => searchDrop.classList.add('hidden'), 120));
+    }
+  }).catch(() => {
+    const el = document.getElementById('modal-deps-content');
+    if (el) el.innerHTML = '<span class="error-msg">Failed to load dependencies</span>';
+  });
+}
+
+function renderModalActions(task) {
+  const section = document.getElementById('modal-actions-row');
+  section.innerHTML = `
+    ${task.status === 'active' ? `
+      <button class="btn-primary btn-modal-complete">✓ Complete</button>
+      <button class="btn-secondary btn-modal-snooze">⏰ Snooze 1h</button>
+    ` : ''}
+    <button class="btn-danger btn-modal-delete">✕ Delete</button>
+  `;
+  section.querySelector('.btn-modal-complete')?.addEventListener('click', () =>
+    patchTask(task.id, { action: 'complete' }).catch(e => alert(e.message)));
+  section.querySelector('.btn-modal-snooze')?.addEventListener('click', () =>
+    patchTask(task.id, { action: 'snooze', minutes: 60 }).catch(e => alert(e.message)));
+  section.querySelector('.btn-modal-delete').addEventListener('click', async () => {
+    if (confirm(`Delete "${task.title}"?`)) {
+      await deleteTask(task.id).catch(e => alert(e.message));
+    }
+  });
+}
+
+function refreshModalAfterPatch(task, action) {
+  // After any patch, refresh meta/actions. After checkin, also refresh history.
+  renderModalMeta(task);
+  renderModalActions(task);
+  if (action === 'checkin') {
+    renderModalHistory(task.id);
+  }
+  if (action === 'complete' || action === 'snooze') {
+    renderModalCheckin(task);
+  }
+}
+
+// ── Card rendering (compact) ───────────────────────────────────────────────────
+function renderCard(task) {
+  const el = document.createElement('div');
+  el.className = `task-card compact status-${task.status}`;
+  el.dataset.id = task.id;
+
+  const isActive = task.status === 'active';
+  const isSelected = selectedTaskIds.has(task.id);
+
+  // Tags: read-only compact chips
+  const tagsHtml = (task.tags || []).map(t =>
+    `<span class="tag-chip-compact">${esc(t.name)}</span>`
+  ).join('');
+
+  const dueHtml = task.due_date
+    ? `<span class="task-due-compact">📅 ${task.due_date}</span>`
+    : '';
+
+  const lockedIcon = task.priority_locked ? ' 🔒' : '';
+  const frozenBadge = task.is_blocked ? '<span class="frozen-badge" title="Frozen: waiting on blocking task">❄️</span>' : '';
+
+  // Project badge
+  const proj = task.project_id ? allProjects.find(p => p.id === task.project_id) : null;
+  const projBadge = proj ? `<span class="project-badge">${esc(proj.name)}</span>` : '';
+
+  el.innerHTML = `
+    <div class="card-header">
+      <input type="checkbox" class="task-checkbox" ${isSelected ? 'checked' : ''}>
+      <span class="priority-badge pp${task.priority.toLowerCase()}" title="${task.priority_locked ? 'Priority locked' : 'Priority auto-escalates when overdue'}">${task.priority}${lockedIcon}</span>
+      ${frozenBadge}
+      <span class="task-title">${esc(task.title)}</span>
+      <span class="${countdownClass(task.next_reminder)}" data-countdown="${task.next_reminder}">${formatCountdown(task.next_reminder)}</span>
+      ${dueHtml}
+      ${task.status !== 'active' ? `<span class="task-status-badge">${task.status}</span>` : ''}
+    </div>
+    <div class="card-footer">
+      <div class="card-tags">${projBadge}${tagsHtml}</div>
+      <div class="card-actions">
+        ${isActive ? `
+          <button class="btn-action btn-complete" title="Complete">✓</button>
+          <button class="btn-action btn-snooze" title="Snooze 1h">⏰</button>
+        ` : ''}
+        <button class="btn-action btn-open-modal" title="Open details">→</button>
+      </div>
+    </div>
+  `;
+
+  el.querySelector('.task-checkbox').addEventListener('change', e => {
+    if (e.target.checked) selectedTaskIds.add(task.id);
+    else selectedTaskIds.delete(task.id);
+    renderBulkBar();
+    updateSelectAll();
+  });
+
+  el.querySelector('.btn-complete')?.addEventListener('click', e => {
+    e.stopPropagation();
+    patchTask(task.id, { action: 'complete' }).catch(err => alert(err.message));
+  });
+
+  el.querySelector('.btn-snooze')?.addEventListener('click', e => {
+    e.stopPropagation();
+    patchTask(task.id, { action: 'snooze', minutes: 60 }).catch(err => alert(err.message));
+  });
+
+  const openModal = () => openTaskModal(task);
+  el.querySelector('.btn-open-modal').addEventListener('click', openModal);
+  el.addEventListener('click', e => {
+    if (e.target.closest('button, input')) return;
+    openModal();
+  });
 
   return el;
 }
@@ -953,8 +1227,8 @@ function showApp() {
   document.getElementById('view-login').classList.add('hidden');
   document.getElementById('view-app').classList.remove('hidden');
   document.getElementById('user-email').textContent = userEmail || '';
-  // Load tags first so tag pickers are populated when task cards render
-  fetchTags().then(() => fetchTasks()).catch(e => console.error(e));
+  // Load tags and projects first so pickers are populated when task cards render
+  Promise.all([fetchTags(), fetchProjects()]).then(() => fetchTasks()).catch(e => console.error(e));
   fetchAndRenderHealthGrid();
   fetchTelegramStatus();
   initQuietHoursUI();
@@ -964,11 +1238,21 @@ function showApp() {
   autoRefreshTimer = setInterval(async () => {
     try {
       const fresh = await api('GET', '/tasks?status=all');
-      const sig = t => `${t.id}:${t.next_reminder}:${t.status}`;
+      const sig = t => `${t.id}:${t.next_reminder}:${t.status}:${t.priority}:${t.priority_locked}:${t.is_blocked}`;
       if (allTasks.map(sig).join('|') !== fresh.map(sig).join('|')) {
         allTasks = fresh;
         renderTasks();
         updateStats();
+        // If modal is open, refresh meta and actions for the open task
+        if (openModalTaskId !== null) {
+          const freshTask = allTasks.find(t => t.id === openModalTaskId);
+          if (freshTask) {
+            renderModalMeta(freshTask);
+            renderModalActions(freshTask);
+          } else {
+            closeTaskModal();
+          }
+        }
       }
     } catch { /* network unavailable — skip silently */ }
   }, 30_000);
@@ -1121,6 +1405,30 @@ function init() {
   });
   document.getElementById('new-tag-name').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('btn-create-tag').click();
+  });
+
+  // Create project
+  document.getElementById('btn-create-project').addEventListener('click', async () => {
+    const input = document.getElementById('new-project-name');
+    const name = input.value.trim();
+    const errEl = document.getElementById('create-project-error');
+    errEl.textContent = '';
+    if (!name) return;
+    try {
+      await createProject(name);
+      input.value = '';
+    } catch (err) { errEl.textContent = err.message; }
+  });
+  document.getElementById('new-project-name').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btn-create-project').click();
+  });
+
+  // Modal: close on overlay click outside panel, and on Escape
+  document.getElementById('task-modal-overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('task-modal-overlay')) closeTaskModal();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && openModalTaskId !== null) closeTaskModal();
   });
 
   // Boot

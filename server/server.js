@@ -138,7 +138,11 @@ async function handleGetTasks(req, res, user) {
     if (!tagMap.has(row.task_id)) tagMap.set(row.task_id, []);
     tagMap.get(row.task_id).push({ id: row.id, name: row.name });
   }
-  for (const task of tasks) task.tags = tagMap.get(task.id) || [];
+  const blockedIds = new Set(stmts.getBlockedTaskIds.all().map(r => r.blocked_task_id));
+  for (const task of tasks) {
+    task.tags = tagMap.get(task.id) || [];
+    task.is_blocked = blockedIds.has(task.id) ? 1 : 0;
+  }
   send(res, 200, tasks);
 }
 

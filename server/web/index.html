@@ -94,6 +94,17 @@
         <!-- Left Sidebar: Tags -->
         <aside class="sidebar">
           <div class="sidebar-section">
+            <h3 class="sidebar-heading">Projects</h3>
+            <div id="project-filters">
+              <!-- chips rendered by JS -->
+            </div>
+            <div class="create-tag-form" style="margin-top:8px;">
+              <input type="text" id="new-project-name" placeholder="Project name" maxlength="200">
+              <button id="btn-create-project" class="btn-primary">+</button>
+            </div>
+            <div id="create-project-error" class="error-msg"></div>
+          </div>
+          <div class="sidebar-section">
             <h3 class="sidebar-heading">Filter by Tag</h3>
             <div id="tag-filters">
               <!-- chips rendered by JS -->
@@ -210,6 +221,25 @@
 
     </div><!-- .app-body -->
   </div><!-- #view-app -->
+
+  <!-- Task Detail Modal -->
+  <div id="task-modal-overlay" class="modal-overlay hidden" aria-modal="true" role="dialog">
+    <div id="task-modal" class="modal-panel">
+      <div class="modal-header">
+        <div id="modal-title-wrap" class="modal-title-wrap"></div>
+        <button id="modal-close" class="btn-icon modal-close-btn" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="modal-meta-row" class="modal-section"></div>
+        <div id="modal-description-section" class="modal-section"></div>
+        <div id="modal-todos-section" class="modal-section"></div>
+        <div id="modal-checkin-section" class="modal-section"></div>
+        <div id="modal-history-section" class="modal-section"></div>
+        <div id="modal-deps-section" class="modal-section"></div>
+        <div id="modal-actions-row" class="modal-section modal-actions-section"></div>
+      </div>
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
