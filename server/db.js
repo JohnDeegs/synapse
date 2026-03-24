@@ -101,6 +101,7 @@ db.exec(`
 for (const ddl of [
   'ALTER TABLE tasks ADD COLUMN embedding TEXT',
   'ALTER TABLE tasks ADD COLUMN due_date TEXT',
+  'ALTER TABLE tasks ADD COLUMN priority_locked INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE tags ADD COLUMN weekday_only INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE tags ADD COLUMN quiet_start INTEGER',
   'ALTER TABLE tags ADD COLUMN quiet_end INTEGER',
@@ -140,7 +141,8 @@ const stmts = {
     SET status = @status,
         priority = @priority,
         checkin_count = @checkinCount,
-        next_reminder = @nextReminder
+        next_reminder = @nextReminder,
+        priority_locked = @priorityLocked
     WHERE id = @id
   `),
   deleteTask: db.prepare(
@@ -151,6 +153,12 @@ const stmts = {
   `),
   updateTaskPriority: db.prepare(`
     UPDATE tasks SET priority = @priority, next_reminder = @nextReminder WHERE id = @id
+  `),
+  lockTaskPriority: db.prepare(`
+    UPDATE tasks SET priority = @priority, next_reminder = @nextReminder, priority_locked = 1 WHERE id = @id
+  `),
+  unlockTaskPriority: db.prepare(`
+    UPDATE tasks SET priority_locked = 0 WHERE id = ?
   `),
   getAllActiveTasksWithDueDates: db.prepare(
     "SELECT * FROM tasks WHERE status = 'active' AND due_date IS NOT NULL"

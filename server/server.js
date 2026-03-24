@@ -8,7 +8,7 @@ const { hashPassword, verifyPassword, signToken, verifyToken } = require('./auth
 const {
   createTask, getActiveTasks, getTaskById,
   checkinTask, completeTask, snoozeTask, deleteTask, updateTaskContent,
-  changePriority, escalateAllDueTasks, snapshotDailyHealth,
+  changePriority, unlockTaskPriority, escalateAllDueTasks, snapshotDailyHealth,
 } = require('./tasks');
 const telegram = require('./telegram');
 const { sendDailyBriefings, sendOverdueAlerts } = telegram;
@@ -174,14 +174,17 @@ async function handlePatchTask(req, res, user, id) {
     if (body.description !== undefined && (typeof body.description !== 'string' || body.description.length > 10000)) return send(res, 400, { error: 'description too long (max 10000 chars)' });
     if (body.due_date !== undefined && body.due_date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(body.due_date)) return send(res, 400, { error: 'due_date must be YYYY-MM-DD' });
     if (body.priority !== undefined && !['P0','P1','P2','P3','P4'].includes(body.priority)) return send(res, 400, { error: 'priority must be P0–P4' });
-    // Priority-only change: recalculate next_reminder from new priority
+    // Priority-only change: recalculate next_reminder from new priority, lock it
     if (body.priority !== undefined && body.title === undefined && body.description === undefined && body.due_date === undefined) {
-      return send(res, 200, changePriority(task, body.priority));
+      return send(res, 200, changePriority(task, body.priority, true));
     }
     const updated = updateTaskContent(task, { title: body.title, description: body.description, dueDate: body.due_date });
-    const final = body.priority ? changePriority(updated, body.priority) : updated;
+    const final = body.priority ? changePriority(updated, body.priority, true) : updated;
     updateTaskEmbedding(final).catch(() => {}); // fire-and-forget
     return send(res, 200, final);
+  }
+  if (action === 'unlock') {
+    return send(res, 200, unlockTaskPriority(task));
   }
   if (action === 'checkin') {
     if (body.priority !== undefined && !['P0','P1','P2','P3','P4'].includes(body.priority)) {

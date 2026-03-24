@@ -93,6 +93,7 @@ function checkinTask(task, note = '', priority = null) {
     priority: newPriority,
     checkinCount: newCount,
     nextReminder,
+    priorityLocked: task.priority_locked || 0,
   });
   return stmts.getTaskById.get(task.id);
 }
@@ -104,6 +105,7 @@ function completeTask(task) {
     priority: task.priority,
     checkinCount: task.checkin_count,
     nextReminder: task.next_reminder,
+    priorityLocked: task.priority_locked || 0,
   });
   return stmts.getTaskById.get(task.id);
 }
@@ -116,6 +118,7 @@ function snoozeTask(task, minutes) {
     priority: task.priority,
     checkinCount: task.checkin_count,
     nextReminder,
+    priorityLocked: task.priority_locked || 0,
   });
   return stmts.getTaskById.get(task.id);
 }
@@ -125,10 +128,19 @@ function deleteTask(id, userId) {
   return info.changes > 0;
 }
 
-function changePriority(task, newPriority) {
+function changePriority(task, newPriority, lock = false) {
   const weekdayOnly = taskHasWeekdayOnlyTag(task.id);
   const nextReminder = calcNextReminder(newPriority, task.checkin_count, Date.now(), weekdayOnly);
-  stmts.updateTaskPriority.run({ id: task.id, priority: newPriority, nextReminder });
+  if (lock) {
+    stmts.lockTaskPriority.run({ id: task.id, priority: newPriority, nextReminder });
+  } else {
+    stmts.updateTaskPriority.run({ id: task.id, priority: newPriority, nextReminder });
+  }
+  return stmts.getTaskById.get(task.id);
+}
+
+function unlockTaskPriority(task) {
+  stmts.unlockTaskPriority.run(task.id);
   return stmts.getTaskById.get(task.id);
 }
 
@@ -151,6 +163,7 @@ const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'P4'];
  * Does not mutate anything — pure function.
  */
 function getEscalatedPriority(task) {
+  if (task.priority_locked) return task.priority;
   if (!task.due_date) return task.priority;
 
   const hoursUntilDue = (new Date(task.due_date).getTime() - Date.now()) / (60 * 60 * 1000);
@@ -218,6 +231,7 @@ module.exports = {
   snoozeTask,
   deleteTask,
   changePriority,
+  unlockTaskPriority,
   updateTaskContent,
   getEscalatedPriority,
   escalateAllDueTasks,
