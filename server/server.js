@@ -9,6 +9,7 @@ const {
   createTask, getActiveTasks, getTaskById,
   checkinTask, completeTask, snoozeTask, deleteTask, updateTaskContent,
   changePriority, unlockTaskPriority, escalateAllDueTasks, snapshotDailyHealth,
+  getBlockedTaskIds,
 } = require('./tasks');
 const telegram = require('./telegram');
 const { sendDailyBriefings, sendOverdueAlerts } = telegram;
@@ -168,17 +169,28 @@ async function handlePatchTask(req, res, user, id) {
   const { action, note, minutes } = body;
 
   if (action === 'update') {
-    if (body.title === undefined && body.description === undefined && body.due_date === undefined && body.priority === undefined)
+    if (body.title === undefined && body.description === undefined && body.due_date === undefined && body.priority === undefined && body.project_id === undefined)
       return send(res, 400, { error: 'At least one field required' });
     if (body.title !== undefined && (typeof body.title !== 'string' || body.title.length > 500)) return send(res, 400, { error: 'title too long (max 500 chars)' });
     if (body.description !== undefined && (typeof body.description !== 'string' || body.description.length > 10000)) return send(res, 400, { error: 'description too long (max 10000 chars)' });
     if (body.due_date !== undefined && body.due_date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(body.due_date)) return send(res, 400, { error: 'due_date must be YYYY-MM-DD' });
     if (body.priority !== undefined && !['P0','P1','P2','P3','P4'].includes(body.priority)) return send(res, 400, { error: 'priority must be P0–P4' });
+    // Project assignment only
+    if (body.project_id !== undefined && body.title === undefined && body.description === undefined && body.due_date === undefined && body.priority === undefined) {
+      const pId = body.project_id === null ? null : body.project_id;
+      if (pId !== null) {
+        const proj = stmts.getProjectById.get(pId);
+        if (!proj || proj.user_id !== user.userId) return send(res, 400, { error: 'Invalid project' });
+      }
+      stmts.updateTaskProject.run(pId, task.id, user.userId);
+      return send(res, 200, stmts.getTaskById.get(task.id));
+    }
     // Priority-only change: recalculate next_reminder from new priority, lock it
     if (body.priority !== undefined && body.title === undefined && body.description === undefined && body.due_date === undefined) {
       return send(res, 200, changePriority(task, body.priority, true));
     }
     const updated = updateTaskContent(task, { title: body.title, description: body.description, dueDate: body.due_date });
+    if (body.project_id !== undefined) stmts.updateTaskProject.run(body.project_id === null ? null : body.project_id, task.id, user.userId);
     const final = body.priority ? changePriority(updated, body.priority, true) : updated;
     updateTaskEmbedding(final).catch(() => {}); // fire-and-forget
     return send(res, 200, final);
@@ -214,6 +226,151 @@ async function handleDeleteTask(req, res, user, id) {
 
   deleteTask(id, user.userId);
   send(res, 200, { deleted: true });
+}
+
+// ── Project route handlers ────────────────────────────────────────────────────
+
+async function handleGetProjects(req, res, user) {
+  send(res, 200, stmts.getProjectsByUser.all(user.userId));
+}
+
+async function handleCreateProject(req, res, user) {
+  let body;
+  try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+  const name = (body.name || '').trim();
+  const description = (body.description || '').trim();
+  if (!name) return send(res, 400, { error: 'name required' });
+  if (name.length > 200) return send(res, 400, { error: 'name too long (max 200 chars)' });
+  try {
+    const project = stmts.createProject.get(user.userId, name, description);
+    send(res, 201, project);
+  } catch (e) {
+    if (e.message && e.message.includes('UNIQUE constraint failed'))
+      return send(res, 409, { error: 'Project name already exists' });
+    throw e;
+  }
+}
+
+async function handlePatchProject(req, res, user, projectId) {
+  let body;
+  try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+  const project = stmts.getProjectById.get(projectId);
+  if (!project) return send(res, 404, { error: 'Project not found' });
+  if (project.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+  const name = body.name !== undefined ? (body.name || '').trim() : project.name;
+  const description = body.description !== undefined ? (body.description || '').trim() : project.description;
+  if (!name) return send(res, 400, { error: 'name required' });
+  try {
+    const updated = stmts.updateProject.get({ id: projectId, userId: user.userId, name, description });
+    send(res, 200, updated);
+  } catch (e) {
+    if (e.message && e.message.includes('UNIQUE constraint failed'))
+      return send(res, 409, { error: 'Project name already exists' });
+    throw e;
+  }
+}
+
+async function handleDeleteProject(req, res, user, projectId) {
+  const project = stmts.getProjectById.get(projectId);
+  if (!project) return send(res, 404, { error: 'Project not found' });
+  if (project.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+  stmts.deleteProject.run(projectId, user.userId);
+  send(res, 200, { deleted: true });
+}
+
+// ── Todo route handlers ───────────────────────────────────────────────────────
+
+async function handleGetTodos(req, res, user, taskId) {
+  const task = getTaskById(taskId);
+  if (!task) return send(res, 404, { error: 'Task not found' });
+  if (task.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+  send(res, 200, stmts.getTodosForTask.all(taskId));
+}
+
+async function handleCreateTodo(req, res, user, taskId) {
+  let body;
+  try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+  const task = getTaskById(taskId);
+  if (!task) return send(res, 404, { error: 'Task not found' });
+  if (task.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+  const text = (body.text || '').trim();
+  if (!text) return send(res, 400, { error: 'text required' });
+  if (text.length > 1000) return send(res, 400, { error: 'text too long (max 1000 chars)' });
+  const { max_pos } = stmts.getMaxTodoPosition.get(taskId);
+  const todo = stmts.createTodo.get(taskId, text, max_pos + 1);
+  send(res, 201, todo);
+}
+
+async function handlePatchTodo(req, res, user, taskId, todoId) {
+  let body;
+  try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+  const task = getTaskById(taskId);
+  if (!task) return send(res, 404, { error: 'Task not found' });
+  if (task.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+  if (body.done !== undefined && body.done !== 0 && body.done !== 1) return send(res, 400, { error: 'done must be 0 or 1' });
+  if (body.text !== undefined && (typeof body.text !== 'string' || !body.text.trim())) return send(res, 400, { error: 'text must be non-empty' });
+  // Fetch current todo to merge values
+  const existing = stmts.getTodosForTask.all(taskId).find(t => t.id === todoId);
+  if (!existing) return send(res, 404, { error: 'Todo not found' });
+  const updated = stmts.updateTodo.get({
+    id: todoId,
+    taskId,
+    text: body.text !== undefined ? body.text.trim() : existing.text,
+    done: body.done !== undefined ? body.done : existing.done,
+  });
+  send(res, 200, updated);
+}
+
+async function handleDeleteTodo(req, res, user, taskId, todoId) {
+  const task = getTaskById(taskId);
+  if (!task) return send(res, 404, { error: 'Task not found' });
+  if (task.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+  stmts.deleteTodo.run(todoId, taskId);
+  send(res, 200, { deleted: true });
+}
+
+// ── Dependency route handlers ─────────────────────────────────────────────────
+
+async function handleGetDependencies(req, res, user, taskId) {
+  const task = getTaskById(taskId);
+  if (!task) return send(res, 404, { error: 'Task not found' });
+  if (task.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+  send(res, 200, stmts.getDependenciesForTask.all(taskId, taskId));
+}
+
+async function handleAddDependency(req, res, user, taskId) {
+  let body;
+  try { body = await readBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+  const { blockingTaskId } = body;
+  if (!blockingTaskId || typeof blockingTaskId !== 'number') return send(res, 400, { error: 'blockingTaskId required' });
+  if (blockingTaskId === taskId) return send(res, 400, { error: 'A task cannot depend on itself' });
+  const blockedTask = getTaskById(taskId);
+  if (!blockedTask) return send(res, 404, { error: 'Task not found' });
+  if (blockedTask.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+  const blockingTask = getTaskById(blockingTaskId);
+  if (!blockingTask) return send(res, 404, { error: 'Blocking task not found' });
+  if (blockingTask.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+  // Cycle detection: check if blockingTaskId is already (directly or transitively) blocked by taskId
+  const visited = new Set();
+  const stack = [blockingTaskId];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === taskId) return send(res, 400, { error: 'This dependency would create a cycle' });
+    if (visited.has(current)) continue;
+    visited.add(current);
+    const blockers = stmts.getBlockingTasksFor.all(current).map(t => t.id);
+    stack.push(...blockers);
+  }
+  stmts.addDependency.run(taskId, blockingTaskId);
+  send(res, 200, { ok: true });
+}
+
+async function handleRemoveDependency(req, res, user, taskId, blockingTaskId) {
+  const task = getTaskById(taskId);
+  if (!task) return send(res, 404, { error: 'Task not found' });
+  if (task.user_id !== user.userId) return send(res, 403, { error: 'Forbidden' });
+  stmts.removeDependency.run(taskId, blockingTaskId);
+  send(res, 200, { ok: true });
 }
 
 // ── Static file serving ───────────────────────────────────────────────────────
@@ -448,20 +605,36 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, stmts.getDailyHealth.all(u.userId, since));
     }
 
+    // Project routes — require auth
+    if (req.method === 'GET'  && url === '/projects') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetProjects(req, res, u); }
+    if (req.method === 'POST' && url === '/projects') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleCreateProject(req, res, u); }
+    const projectMatch = url.match(/^\/projects\/(\d+)$/);
+    if (req.method === 'PATCH'  && projectMatch) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handlePatchProject(req, res, u, parseInt(projectMatch[1], 10)); }
+    if (req.method === 'DELETE' && projectMatch) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleDeleteProject(req, res, u, parseInt(projectMatch[1], 10)); }
+
     // Tag routes — require auth
     if (req.method === 'GET'   && url === '/tags') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetTags(req, res, u); }
     if (req.method === 'POST'  && url === '/tags') { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleCreateTag(req, res, u); }
     const tagMatch = url.match(/^\/tags\/(\d+)$/);
     if (req.method === 'PATCH' && tagMatch) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handlePatchTag(req, res, u, parseInt(tagMatch[1], 10)); }
 
-    // Nested task-tag routes: /tasks/:id/tags and /tasks/:id/tags/:tagId
-    // Split: ['', 'tasks', '<id>', 'tags', '<tagId?>']
+    // Nested task sub-routes: /tasks/:id/{tags,checkins,todos,dependencies}
     const parts = url.split('/');
-    const isTaskTagsRoute     = parts[1] === 'tasks' && parts[3] === 'tags'     && /^\d+$/.test(parts[2]);
-    const isTaskCheckinsRoute = parts[1] === 'tasks' && parts[3] === 'checkins' && /^\d+$/.test(parts[2]);
+    const isTaskTagsRoute     = parts[1] === 'tasks' && parts[3] === 'tags'         && /^\d+$/.test(parts[2]);
+    const isTaskCheckinsRoute = parts[1] === 'tasks' && parts[3] === 'checkins'     && /^\d+$/.test(parts[2]);
+    const isTaskTodosRoute    = parts[1] === 'tasks' && parts[3] === 'todos'        && /^\d+$/.test(parts[2]);
+    const isTaskDepsRoute     = parts[1] === 'tasks' && parts[3] === 'dependencies' && /^\d+$/.test(parts[2]);
+
     if (isTaskTagsRoute && req.method === 'POST'   && parts.length === 4) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleAssignTag(req, res, u, parseInt(parts[2], 10)); }
     if (isTaskTagsRoute && req.method === 'DELETE' && parts.length === 5 && /^\d+$/.test(parts[4])) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleRemoveTag(req, res, u, parseInt(parts[2], 10), parseInt(parts[4], 10)); }
     if (isTaskCheckinsRoute && req.method === 'GET' && parts.length === 4) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetCheckins(req, res, u, parseInt(parts[2], 10)); }
+    if (isTaskTodosRoute && req.method === 'GET'    && parts.length === 4) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetTodos(req, res, u, parseInt(parts[2], 10)); }
+    if (isTaskTodosRoute && req.method === 'POST'   && parts.length === 4) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleCreateTodo(req, res, u, parseInt(parts[2], 10)); }
+    if (isTaskTodosRoute && req.method === 'PATCH'  && parts.length === 5 && /^\d+$/.test(parts[4])) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handlePatchTodo(req, res, u, parseInt(parts[2], 10), parseInt(parts[4], 10)); }
+    if (isTaskTodosRoute && req.method === 'DELETE' && parts.length === 5 && /^\d+$/.test(parts[4])) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleDeleteTodo(req, res, u, parseInt(parts[2], 10), parseInt(parts[4], 10)); }
+    if (isTaskDepsRoute && req.method === 'GET'    && parts.length === 4) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleGetDependencies(req, res, u, parseInt(parts[2], 10)); }
+    if (isTaskDepsRoute && req.method === 'POST'   && parts.length === 4) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleAddDependency(req, res, u, parseInt(parts[2], 10)); }
+    if (isTaskDepsRoute && req.method === 'DELETE' && parts.length === 5 && /^\d+$/.test(parts[4])) { const u = authenticate(req); if (!u) return send(res, 401, { error: 'Unauthorized' }); return await handleRemoveDependency(req, res, u, parseInt(parts[2], 10), parseInt(parts[4], 10)); }
 
     // Task routes — require auth
     const taskMatch = url.match(/^\/tasks\/(\d+)$/);

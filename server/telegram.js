@@ -6,7 +6,7 @@ const { stmts } = require('./db');
 const { chat, generateMorningBriefing } = require('./llm');
 const { findRelevantTasks } = require('./embeddings');
 const { checkRateLimit }    = require('./telegram-rate-limit');
-const { getActiveTasks }    = require('./tasks');
+const { getActiveTasks, getBlockedTaskIds } = require('./tasks');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -240,8 +240,10 @@ async function sendOverdueAlerts() {
 
   for (const link of links) {
     try {
+      const blockedIds = getBlockedTaskIds();
       const overdue = getActiveTasks(link.user_id)
-        .filter(t => t.next_reminder >= windowStart && t.next_reminder <= windowEnd);
+        .filter(t => t.next_reminder >= windowStart && t.next_reminder <= windowEnd)
+        .filter(t => !blockedIds.has(t.id));
       if (overdue.length === 0) continue;
 
       const lines = overdue.map(t => `• [${t.priority}] ${t.title}`).join('\n');

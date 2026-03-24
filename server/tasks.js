@@ -189,8 +189,10 @@ function getEscalatedPriority(task) {
  */
 function escalateAllDueTasks() {
   const tasks = stmts.getAllActiveTasksWithDueDates.all();
+  const blockedIds = new Set(stmts.getBlockedTaskIds.all().map(r => r.blocked_task_id));
   let count = 0;
   for (const task of tasks) {
+    if (blockedIds.has(task.id)) continue; // frozen by dependency
     const newPriority = getEscalatedPriority(task);
     if (newPriority === task.priority) continue;
 
@@ -201,6 +203,10 @@ function escalateAllDueTasks() {
     count++;
   }
   return count;
+}
+
+function getBlockedTaskIds() {
+  return new Set(stmts.getBlockedTaskIds.all().map(r => r.blocked_task_id));
 }
 
 /**
@@ -235,4 +241,5 @@ module.exports = {
   updateTaskContent,
   getEscalatedPriority,
   escalateAllDueTasks,
+  getBlockedTaskIds,
 };

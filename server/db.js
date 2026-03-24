@@ -95,6 +95,31 @@ db.exec(`
     status  TEXT NOT NULL DEFAULT 'green' CHECK(status IN ('green','red')),
     UNIQUE(user_id, date)
   );
+
+  CREATE TABLE IF NOT EXISTS projects (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, name)
+  );
+
+  CREATE TABLE IF NOT EXISTS task_todos (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    text       TEXT NOT NULL,
+    done       INTEGER NOT NULL DEFAULT 0,
+    position   INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS task_dependencies (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    blocked_task_id  INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    blocking_task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    UNIQUE(blocked_task_id, blocking_task_id)
+  );
 `);
 
 // Add columns to existing databases (idempotent)
@@ -102,6 +127,7 @@ for (const ddl of [
   'ALTER TABLE tasks ADD COLUMN embedding TEXT',
   'ALTER TABLE tasks ADD COLUMN due_date TEXT',
   'ALTER TABLE tasks ADD COLUMN priority_locked INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL',
   'ALTER TABLE tags ADD COLUMN weekday_only INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE tags ADD COLUMN quiet_start INTEGER',
   'ALTER TABLE tags ADD COLUMN quiet_end INTEGER',
@@ -264,6 +290,76 @@ const stmts = {
       quiet_start   = @quietStart,
       quiet_end     = @quietEnd,
       updated_at    = datetime('now')
+  `),
+
+  // Projects
+  createProject: db.prepare(
+    'INSERT INTO projects (user_id, name, description) VALUES (?, ?, ?) RETURNING *'
+  ),
+  getProjectsByUser: db.prepare(
+    'SELECT * FROM projects WHERE user_id = ? ORDER BY name ASC'
+  ),
+  getProjectById: db.prepare(
+    'SELECT * FROM projects WHERE id = ?'
+  ),
+  updateProject: db.prepare(
+    'UPDATE projects SET name = @name, description = @description WHERE id = @id AND user_id = @userId RETURNING *'
+  ),
+  deleteProject: db.prepare(
+    'DELETE FROM projects WHERE id = ? AND user_id = ?'
+  ),
+  updateTaskProject: db.prepare(
+    'UPDATE tasks SET project_id = ? WHERE id = ? AND user_id = ?'
+  ),
+
+  // Task todos
+  getTodosForTask: db.prepare(
+    'SELECT * FROM task_todos WHERE task_id = ? ORDER BY position ASC, id ASC'
+  ),
+  createTodo: db.prepare(
+    'INSERT INTO task_todos (task_id, text, position) VALUES (?, ?, ?) RETURNING *'
+  ),
+  updateTodo: db.prepare(
+    'UPDATE task_todos SET text = @text, done = @done WHERE id = @id AND task_id = @taskId RETURNING *'
+  ),
+  deleteTodo: db.prepare(
+    'DELETE FROM task_todos WHERE id = ? AND task_id = ?'
+  ),
+  getMaxTodoPosition: db.prepare(
+    'SELECT COALESCE(MAX(position), -1) AS max_pos FROM task_todos WHERE task_id = ?'
+  ),
+
+  // Task dependencies
+  addDependency: db.prepare(
+    'INSERT OR IGNORE INTO task_dependencies (blocked_task_id, blocking_task_id) VALUES (?, ?) RETURNING *'
+  ),
+  removeDependency: db.prepare(
+    'DELETE FROM task_dependencies WHERE blocked_task_id = ? AND blocking_task_id = ?'
+  ),
+  getBlockingTasksFor: db.prepare(`
+    SELECT t.* FROM tasks t
+    JOIN task_dependencies d ON d.blocking_task_id = t.id
+    WHERE d.blocked_task_id = ? AND t.status = 'active'
+  `),
+  getBlockedTasksBy: db.prepare(`
+    SELECT t.* FROM tasks t
+    JOIN task_dependencies d ON d.blocked_task_id = t.id
+    WHERE d.blocking_task_id = ?
+  `),
+  getDependenciesForTask: db.prepare(`
+    SELECT 'blocked_by' AS direction, bt.id, bt.title, bt.priority, bt.status
+    FROM task_dependencies d
+    JOIN tasks bt ON bt.id = d.blocking_task_id
+    WHERE d.blocked_task_id = ?
+    UNION ALL
+    SELECT 'blocking' AS direction, bt.id, bt.title, bt.priority, bt.status
+    FROM task_dependencies d
+    JOIN tasks bt ON bt.id = d.blocked_task_id
+    WHERE d.blocking_task_id = ?
+  `),
+  getBlockedTaskIds: db.prepare(`
+    SELECT DISTINCT d.blocked_task_id FROM task_dependencies d
+    JOIN tasks bt ON bt.id = d.blocking_task_id AND bt.status = 'active'
   `),
 
   // Telegram rate limits
