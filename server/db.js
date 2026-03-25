@@ -126,7 +126,7 @@ db.exec(`
 for (const ddl of [
   'ALTER TABLE tasks ADD COLUMN embedding TEXT',
   'ALTER TABLE tasks ADD COLUMN due_date TEXT',
-  'ALTER TABLE tasks ADD COLUMN priority_locked INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE tasks ADD COLUMN priority_locked INTEGER NOT NULL DEFAULT 1',
   'ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL',
   'ALTER TABLE tags ADD COLUMN weekday_only INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE tags ADD COLUMN quiet_start INTEGER',
@@ -136,6 +136,9 @@ for (const ddl of [
     if (!e.message.includes('duplicate column name')) throw e;
   }
 }
+
+// Lock all existing tasks that haven't been explicitly unlocked
+db.exec("UPDATE tasks SET priority_locked = 1 WHERE priority_locked = 0");
 
 // Prepared statements
 const stmts = {
@@ -149,8 +152,8 @@ const stmts = {
 
   // Tasks
   createTask: db.prepare(`
-    INSERT INTO tasks (user_id, title, description, priority, next_reminder, due_date)
-    VALUES (@userId, @title, @description, @priority, @nextReminder, @dueDate)
+    INSERT INTO tasks (user_id, title, description, priority, next_reminder, due_date, priority_locked)
+    VALUES (@userId, @title, @description, @priority, @nextReminder, @dueDate, 1)
     RETURNING *
   `),
   getActiveTasks: db.prepare(
