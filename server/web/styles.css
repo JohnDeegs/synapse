@@ -1587,3 +1587,30 @@ html.light .tag-chip { background: #e8f0fe; color: var(--accent); }
   padding: 2px 4px;
 }
 .btn-delete-project:hover { opacity: 1; color: var(--danger); }
+
+/* ── Toast notifications ─────────────────────────────────────────────────── */
+#toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+  pointer-events: none;
+}
+.toast {
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  max-width: 340px;
+  word-break: break-word;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.25s, transform 0.25s;
+  pointer-events: auto;
+}
+.toast-show { opacity: 1; transform: translateY(0); }
+.toast-error { background: var(--danger, #e53935); color: #fff; }
+.toast-success { background: #2e7d32; color: #fff; }
+.toast-info { background: var(--accent, #1976d2); color: #fff; }

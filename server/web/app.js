@@ -46,6 +46,25 @@ function toggleTheme() {
 
 initTheme();
 
+// ── Toast notifications ─────────────────────────────────────────────────────────
+function showToast(msg, type = 'error') {
+  const container = document.getElementById('toast-container') || (() => {
+    const el = document.createElement('div');
+    el.id = 'toast-container';
+    document.body.appendChild(el);
+    return el;
+  })();
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('toast-show'));
+  setTimeout(() => {
+    toast.classList.remove('toast-show');
+    toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+  }, 4000);
+}
+
 // ── EasyMDE factory ────────────────────────────────────────────────────────────
 function makeMDE(el, opts = {}) {
   return new EasyMDE(Object.assign({
@@ -137,7 +156,7 @@ function renderTelegramSettings(connected, codeData) {
       try {
         await api('DELETE', '/telegram/connect');
         renderTelegramSettings(false);
-      } catch (e) { alert('Failed to disconnect: ' + e.message); }
+      } catch (e) { showToast('Failed to disconnect: ' + e.message); }
     });
     return;
   }
@@ -175,7 +194,7 @@ async function generateTelegramCode() {
   try {
     const data = await api('POST', '/auth/telegram-code');
     renderTelegramSettings(false, data);
-  } catch (e) { alert('Failed to generate code: ' + e.message); }
+  } catch (e) { showToast('Failed to generate code: ' + e.message); }
 }
 
 // ── Task API ───────────────────────────────────────────────────────────────────
@@ -508,7 +527,7 @@ function renderTagSidebar() {
         const tag = allTags.find(t => t.id === tagId);
         if (tag) tag.weekday_only = checked ? 1 : 0;
       } catch (e) {
-        alert(e.message);
+        showToast(e.message);
         this.checked = !checked;
       }
     });
@@ -531,7 +550,7 @@ function renderTagSidebar() {
           tag.quiet_start = 9;
           tag.quiet_end = 17;
         } catch (err) {
-          alert(err.message);
+          showToast(err.message);
           return;
         }
       }
@@ -553,7 +572,7 @@ function renderTagSidebar() {
         await api('PATCH', `/tags/${tagId}`, { quiet_start: qs, quiet_end: qe });
         if (tag) { tag.quiet_start = qs; tag.quiet_end = qe; }
       } catch (err) {
-        alert(err.message);
+        showToast(err.message);
         renderTagSidebar();
       }
     });
@@ -570,7 +589,7 @@ function renderTagSidebar() {
         openQuietTagId = null;
         renderTagSidebar();
       } catch (err) {
-        alert(err.message);
+        showToast(err.message);
       }
     });
   });
@@ -614,7 +633,7 @@ function renderProjectSidebar() {
       const pid = parseInt(btn.dataset.projectId, 10);
       const proj = allProjects.find(p => p.id === pid);
       if (!confirm(`Delete project "${proj?.name}"? Tasks will be unassigned.`)) return;
-      try { await deleteProject(pid); } catch (err) { alert(err.message); }
+      try { await deleteProject(pid); } catch (err) { showToast(err.message); }
     });
   });
 }
@@ -673,7 +692,7 @@ function openTaskModal(task) {
       const newTitle = input.value.trim();
       if (newTitle && newTitle !== task.title) {
         try { await patchTask(task.id, { action: 'update', title: newTitle, description: task.description }); }
-        catch (err) { alert('Failed: ' + err.message); }
+        catch (err) { showToast('Failed: ' + err.message); }
       } else {
         titleWrap.innerHTML = `<span class="modal-title-display">${esc(task.title)}</span><button class="btn-icon btn-edit-modal-title" title="Edit title">✎</button>`;
       }
@@ -754,13 +773,13 @@ function renderModalMeta(task) {
     const prev = task.priority;
     this.className = `modal-priority-select pp${this.value.toLowerCase()}`;
     try { await patchTask(task.id, { action: 'update', priority: this.value }); }
-    catch (err) { alert(err.message); this.value = prev; this.className = `modal-priority-select pp${prev.toLowerCase()}`; }
+    catch (err) { showToast(err.message); this.value = prev; this.className = `modal-priority-select pp${prev.toLowerCase()}`; }
   });
 
   // Unlock priority
   section.querySelector('.btn-unlock-priority')?.addEventListener('click', async () => {
     try { await patchTask(task.id, { action: 'unlock' }); }
-    catch (err) { alert(err.message); }
+    catch (err) { showToast(err.message); }
   });
 
   // Due date picker
@@ -769,7 +788,7 @@ function renderModalMeta(task) {
     modalDuePicker = new DatePicker(dueBtn, async date => {
       dueBtn.textContent = date ? `📅 ${date}` : '📅 Set due date';
       try { await patchTask(task.id, { action: 'update', title: task.title, description: task.description, due_date: date }); }
-      catch (err) { alert('Failed: ' + err.message); }
+      catch (err) { showToast('Failed: ' + err.message); }
     }, task.due_date);
   }
 
@@ -785,7 +804,7 @@ function renderModalMeta(task) {
         renderTasks();
         const fresh = allTasks.find(t => t.id === task.id);
         if (fresh) renderModalMeta(fresh);
-      } catch (e) { alert(e.message); }
+      } catch (e) { showToast(e.message); }
     });
   });
 
@@ -805,7 +824,7 @@ function renderModalMeta(task) {
         renderTasks();
         const fresh = allTasks.find(t => t.id === task.id);
         if (fresh) renderModalMeta(fresh);
-      } catch (e) { alert(e.message); }
+      } catch (e) { showToast(e.message); }
     };
     const renderDropdown = () => {
       const matches = getMatches();
@@ -838,7 +857,7 @@ function renderModalMeta(task) {
     const pid = this.value ? parseInt(this.value, 10) : null;
     try {
       await patchTask(task.id, { action: 'update', project_id: pid });
-    } catch (err) { alert(err.message); this.value = task.project_id || ''; }
+    } catch (err) { showToast(err.message); this.value = task.project_id || ''; }
   });
 }
 
@@ -880,7 +899,7 @@ function renderModalDescription(task) {
     closeEditor();
     if (newDesc !== task.description) {
       try { await patchTask(task.id, { action: 'update', title: task.title, description: newDesc }); }
-      catch (err) { alert('Failed: ' + err.message); }
+      catch (err) { showToast('Failed: ' + err.message); }
     }
   });
   section.querySelector('.btn-cancel-modal-desc').addEventListener('click', closeEditor);
@@ -920,7 +939,7 @@ function renderModalTodos(task) {
         }));
         todos.push(todo);
         renderTodoList(task.id, todos, true);
-      } catch (e) { alert(e.message); }
+      } catch (e) { showToast(e.message); }
     };
     section.querySelector('.btn-add-todo').addEventListener('click', addTodo);
     section.querySelector('.todo-new-input').addEventListener('keydown', e => { if (e.key === 'Enter') addTodo(); });
@@ -948,7 +967,7 @@ function renderTodoList(taskId, todos, canEdit) {
       try {
         await api('PATCH', `/tasks/${taskId}/todos/${todoId}`, { done: this.checked ? 1 : 0 });
         this.closest('.todo-item').querySelector('.todo-text').classList.toggle('todo-done', this.checked);
-      } catch (e) { alert(e.message); this.checked = !this.checked; }
+      } catch (e) { showToast(e.message); this.checked = !this.checked; }
     });
   });
   listEl.querySelectorAll('.btn-todo-delete').forEach(btn => {
@@ -958,7 +977,7 @@ function renderTodoList(taskId, todos, canEdit) {
         await api('DELETE', `/tasks/${taskId}/todos/${todoId}`);
         const remaining = todos.filter(t => t.id !== todoId);
         renderTodoList(taskId, remaining, canEdit);
-      } catch (e) { alert(e.message); }
+      } catch (e) { showToast(e.message); }
     });
   });
 }
@@ -985,7 +1004,7 @@ function renderModalCheckin(task) {
     try {
       await patchTask(task.id, { action: 'checkin', note, priority });
       section.querySelector('.modal-checkin-note').value = '';
-    } catch (e) { alert(e.message); }
+    } catch (e) { showToast(e.message); }
   });
 }
 
@@ -1056,7 +1075,7 @@ function renderModalDeps(task) {
       btn.addEventListener('click', async () => {
         const blockingId = parseInt(btn.dataset.blockingId);
         try { await api('DELETE', `/tasks/${task.id}/dependencies/${blockingId}`); renderModalDeps(task); renderTasks(); }
-        catch (e) { alert(e.message); }
+        catch (e) { showToast(e.message); }
       });
     });
     // Add dependency search
@@ -1080,7 +1099,7 @@ function renderModalDeps(task) {
             e.preventDefault();
             const blockingId = parseInt(item.dataset.taskId);
             try { await api('POST', `/tasks/${task.id}/dependencies`, { blockingTaskId: blockingId }); renderModalDeps(task); renderTasks(); }
-            catch (err) { alert(err.message); }
+            catch (err) { showToast(err.message); }
             searchInput.value = ''; searchDrop.classList.add('hidden');
           });
         });
@@ -1105,12 +1124,12 @@ function renderModalActions(task) {
     <button class="btn-danger btn-modal-delete">✕ Delete</button>
   `;
   section.querySelector('.btn-modal-complete')?.addEventListener('click', () =>
-    patchTask(task.id, { action: 'complete' }).catch(e => alert(e.message)));
+    patchTask(task.id, { action: 'complete' }).catch(e => showToast(e.message)));
   section.querySelector('.btn-modal-snooze')?.addEventListener('click', () =>
-    patchTask(task.id, { action: 'snooze', minutes: 60 }).catch(e => alert(e.message)));
+    patchTask(task.id, { action: 'snooze', minutes: 60 }).catch(e => showToast(e.message)));
   section.querySelector('.btn-modal-delete').addEventListener('click', async () => {
     if (confirm(`Delete "${task.title}"?`)) {
-      await deleteTask(task.id).catch(e => alert(e.message));
+      await deleteTask(task.id).catch(e => showToast(e.message));
     }
   });
 }
@@ -1183,12 +1202,12 @@ function renderCard(task) {
 
   el.querySelector('.btn-complete')?.addEventListener('click', e => {
     e.stopPropagation();
-    patchTask(task.id, { action: 'complete' }).catch(err => alert(err.message));
+    patchTask(task.id, { action: 'complete' }).catch(err => showToast(err.message));
   });
 
   el.querySelector('.btn-snooze')?.addEventListener('click', e => {
     e.stopPropagation();
-    patchTask(task.id, { action: 'snooze', minutes: 60 }).catch(err => alert(err.message));
+    patchTask(task.id, { action: 'snooze', minutes: 60 }).catch(err => showToast(err.message));
   });
 
   const openModal = () => openTaskModal(task);
