@@ -546,3 +546,57 @@ A `Dockerfile` bypasses all auto-detection and works — but it means you own th
 | 11 | Telegram Bot: Webhook & Basic Commands | Done |
 | 12 | LLM Integration: Gemini + Tool Calling | Done |
 | 13 | V2 Deployment | Done |
+
+---
+
+## Session: Priority Lock, Task Modal, Todos, Projects, Dependencies & UI Polish
+
+### What we built
+- `priority_locked` flag — prevents the hourly escalation job from overriding manually-set priorities
+- Task detail modal — replaced inline card editing with a full overlay; cards became compact
+- Task todos — subtask checklist per task (DB, API, modal UI)
+- Check-in history — loaded async in the modal on open
+- Projects — named groups with sidebar filtering; tasks assignable via modal dropdown
+- Task dependencies — block task A until task B is done; frozen tasks skip escalation and Telegram alerts, cycle detection prevents circular dependencies
+- Toast notifications — replaced all 26 `alert()` calls with a non-blocking slide-in toast
+
+---
+
+### What went well
+
+**Idempotent migrations are a lifesaver.** The `ALTER TABLE` loop in `db.js` that catches `duplicate column name` errors meant every new column (priority_locked, project_id, etc.) could be added without a separate migration file or startup risk. This pattern should stay.
+
+**Compact card → modal split was the right architecture.** Moving all editing into the modal dramatically cleaned up the card list, and grouping todos/history/deps/checkin in one place made the UX feel cohesive rather than scattered.
+
+**The `is_blocked` annotation on GET /tasks** (injecting the blocked status server-side before sending the response) was cleaner than making the frontend compute it — the frontend doesn't have the full dependency graph otherwise.
+
+---
+
+### What didn't go well / gotchas
+
+**CSS class naming drift caused silent visual bugs.** When building the modal, new class names were invented (`tag-remove-modal`, `modal-tag-ac-input`, `modal-checkin-priority`) without checking whether styled equivalents already existed (`tag-remove`, `tag-ac-input`). The result was unstyled elements — a big white × button inside a tag chip, and a plain browser-default select for the check-in priority — that only surfaced during manual QA. 
+
+**Rule:** before inventing a new CSS class name in app.js, grep styles.css first to see if the same visual already exists.
+
+**CSS specificity order matters more than it looks.** The modal priority select had `background: var(--input-bg)` defined *after* `.pp0`/`.pp1` etc. in the stylesheet, silently overriding the colour classes. It looked fine until you needed the coloured priority badge. The fix was adding explicit `.modal-priority-select.pp0` overrides after the base rule.
+
+**`alert()` as a debugging crutch creates UX debt.** Using `alert(e.message)` in catch blocks is quick but produces blocking browser popups — which look broken to users and interrupt flow. All error feedback should go to a toast or inline message from the start. The 26-call cleanup at the end was avoidable.
+
+**Railway HTML error responses break JSON parsing silently.** When Railway restarts mid-request, it returns an HTML error page. `res.json()` fails, falls back to `{}`, and `data.error || 'Request failed'` triggers an alert popup. The fix (toasts) masks the symptom; the root cause is that the API wrapper doesn't check `Content-Type` before calling `.json()`. A more robust fix would be:
+```js
+const ct = res.headers.get('content-type') || '';
+const data = ct.includes('application/json') ? await res.json() : {};
+```
+
+---
+
+### Things to know before the next session
+
+- **Phase completion table** at the bottom of this file is the source of truth for what's done.
+- **Modal state lives in three globals:** `openModalTaskId`, `modalMDE`, `modalDuePicker`. Close the modal before doing anything that resets `allTasks` or you'll get a stale render.
+- **Tags are fetched as part of each task** in `GET /tasks` (joined via `getTagsByUserForTasks`). When you mutate tags in the modal, you update `allTasks[n].tags` in-place and call `renderTasks()` + `renderModalMeta()` — no full reload needed.
+- **BFS cycle detection** in `handleAddDependency` (`server.js`) prevents circular deps but only checks the currently-active tasks graph. If you add soft-delete or archive later, revisit that query.
+- **`priority_locked` is set automatically** when a user manually changes priority via the modal. The user must explicitly click the unlock button (🔒) to re-enable auto-escalation. This is intentional.
+
+---
+
