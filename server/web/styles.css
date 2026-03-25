@@ -1436,6 +1436,25 @@ html.light .tag-chip { background: #e8f0fe; color: var(--accent); }
   font-size: 0.85rem;
   font-family: inherit;
 }
+.modal-priority-select.pp0,
+.modal-checkin-priority.pp0 { background: var(--p0); color: #fff; }
+.modal-priority-select.pp1,
+.modal-checkin-priority.pp1 { background: var(--p1); color: #fff; }
+.modal-priority-select.pp2,
+.modal-checkin-priority.pp2 { background: var(--p2); color: #000; }
+.modal-priority-select.pp3,
+.modal-checkin-priority.pp3 { background: var(--p3); color: #fff; }
+.modal-priority-select.pp4,
+.modal-checkin-priority.pp4 { background: var(--p4); color: #fff; }
+.modal-checkin-priority {
+  padding: 3px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-family: inherit;
+}
 .btn-unlock-priority {
   font-size: 14px;
   opacity: .8;

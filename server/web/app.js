@@ -717,10 +717,10 @@ function renderModalMeta(task) {
   const isActive = task.status === 'active';
   const availableTags = allTags.filter(t => !(task.tags || []).some(tt => tt.id === t.id));
   const tagsHtml = (task.tags || []).map(t =>
-    `<span class="tag-chip"><span>${esc(t.name)}</span><button class="tag-remove-modal" data-tag-id="${t.id}" title="Remove tag">×</button></span>`
+    `<span class="tag-chip"><span>${esc(t.name)}</span><button class="tag-remove" data-tag-id="${t.id}" title="Remove tag">×</button></span>`
   ).join('');
   const tagPickerHtml = availableTags.length > 0
-    ? `<div class="tag-autocomplete"><input class="modal-tag-ac-input" placeholder="Add tag…" autocomplete="off"><div class="tag-ac-dropdown hidden"></div></div>`
+    ? `<div class="tag-autocomplete"><input class="tag-ac-input" placeholder="Add tag…" autocomplete="off"><div class="tag-ac-dropdown hidden"></div></div>`
     : '';
   const projectOptions = allProjects.map(p =>
     `<option value="${p.id}" ${task.project_id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`
@@ -793,7 +793,7 @@ function renderModalMeta(task) {
   }
 
   // Tag removal
-  section.querySelectorAll('.tag-remove-modal').forEach(btn => {
+  section.querySelectorAll('.tag-remove').forEach(btn => {
     btn.addEventListener('click', async e => {
       e.stopPropagation();
       const tagId = parseInt(btn.dataset.tagId, 10);
@@ -809,7 +809,7 @@ function renderModalMeta(task) {
   });
 
   // Tag autocomplete
-  const acInput    = section.querySelector('.modal-tag-ac-input');
+  const acInput    = section.querySelector('.tag-ac-input');
   const acDropdown = section.querySelector('.tag-ac-dropdown');
   if (acInput && acDropdown) {
     let activeIdx = -1;
