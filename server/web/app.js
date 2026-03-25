@@ -1253,28 +1253,8 @@ function showApp() {
   initQuietHoursUI();
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(updateCountdowns, 30_000);
-  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-  autoRefreshTimer = setInterval(async () => {
-    try {
-      const fresh = await api('GET', '/tasks?status=all');
-      const sig = t => `${t.id}:${t.next_reminder}:${t.status}:${t.priority}:${t.priority_locked}:${t.is_blocked}`;
-      if (allTasks.map(sig).join('|') !== fresh.map(sig).join('|')) {
-        allTasks = fresh;
-        renderTasks();
-        updateStats();
-        // If modal is open, refresh meta and actions for the open task
-        if (openModalTaskId !== null) {
-          const freshTask = allTasks.find(t => t.id === openModalTaskId);
-          if (freshTask) {
-            renderModalMeta(freshTask);
-            renderModalActions(freshTask);
-          } else {
-            closeTaskModal();
-          }
-        }
-      }
-    } catch { /* network unavailable — skip silently */ }
-  }, 30_000);
+  // Auto-refresh disabled — was overwriting manual priority changes in the UI
+  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
