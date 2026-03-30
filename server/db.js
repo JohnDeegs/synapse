@@ -192,6 +192,9 @@ const stmts = {
   getAllActiveTasksWithDueDates: db.prepare(
     "SELECT * FROM tasks WHERE status = 'active' AND due_date IS NOT NULL"
   ),
+  getAllOverdueActiveTasks: db.prepare(
+    "SELECT * FROM tasks WHERE status = 'active' AND next_reminder < ?"
+  ),
   getAllTelegramLinks: db.prepare('SELECT * FROM telegram_links'),
 
   // Checkin log

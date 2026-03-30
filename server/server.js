@@ -9,7 +9,7 @@ const {
   createTask, getActiveTasks, getTaskById,
   checkinTask, completeTask, snoozeTask, deleteTask, updateTaskContent,
   changePriority, unlockTaskPriority, escalateAllDueTasks, snapshotDailyHealth,
-  getBlockedTaskIds,
+  deferWeekdayOnlyTasksForWeekend, getBlockedTaskIds,
 } = require('./tasks');
 const telegram = require('./telegram');
 const { sendDailyBriefings, sendOverdueAlerts } = telegram;
@@ -702,6 +702,12 @@ function scheduleHourlyEscalation() {
       if (n > 0) console.log(`Hourly escalation: ${n} task(s) priority-bumped.`);
     } catch (e) {
       console.error('Escalation error:', e.message);
+    }
+    try {
+      const n = deferWeekdayOnlyTasksForWeekend();
+      if (n > 0) console.log(`Weekend defer: ${n} weekday-only task(s) pushed to Monday.`);
+    } catch (e) {
+      console.error('Weekend defer error:', e.message);
     }
     try {
       for (const { id } of stmts.getAllUserIds.all()) {
