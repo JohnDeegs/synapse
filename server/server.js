@@ -689,7 +689,7 @@ function scheduleDailyBriefing() {
 
 /** Send overdue task alerts to Telegram users every 5 minutes. */
 function scheduleOverdueAlerts() {
-  setInterval(() => {
+  function run() {
     try {
       const n = deferTasksDuringTagQuietHours();
       if (n > 0) console.log(`Quiet-hour defer: ${n} task(s) pushed past quiet window.`);
@@ -697,7 +697,9 @@ function scheduleOverdueAlerts() {
       console.error('Quiet-hour defer error:', e.message);
     }
     sendOverdueAlerts().catch(e => console.error('Overdue alert error:', e.message));
-  }, 5 * 60 * 1000);
+  }
+  run(); // fire immediately on startup
+  setInterval(run, 5 * 60 * 1000);
 }
 
 /** Run due-date escalation and health snapshots every hour. */
