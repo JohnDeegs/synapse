@@ -197,7 +197,8 @@ function escalateAllDueTasks() {
     if (newPriority === task.priority) continue;
 
     // Recalculate next_reminder with escalated priority, but only bring it forward
-    const candidate = calcNextReminder(newPriority, task.checkin_count);
+    const weekdayOnly = taskHasWeekdayOnlyTag(task.id);
+    const candidate = calcNextReminder(newPriority, task.checkin_count, Date.now(), weekdayOnly);
     const nextReminder = candidate < task.next_reminder ? candidate : task.next_reminder;
     stmts.updateTaskPriority.run({ id: task.id, priority: newPriority, nextReminder });
     count++;

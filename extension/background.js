@@ -21,6 +21,16 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   checkAndNotify();
 });
 
+function minsUntilMonday() {
+  const now = new Date();
+  const dow = now.getDay(); // 0=Sun, 6=Sat
+  const daysUntil = dow === 0 ? 1 : 2;
+  const mon = new Date(now);
+  mon.setDate(now.getDate() + daysUntil);
+  mon.setHours(8, 0, 0, 0);
+  return Math.ceil((mon.getTime() - now.getTime()) / 60000);
+}
+
 function isDuringQuietHours(start, end) {
   const hour = new Date().getHours(); // 0–23 local time
   if (start < end) return hour >= start && hour < end; // normal window e.g. 9→17
@@ -57,15 +67,20 @@ async function checkAndNotify() {
 
   const now = Date.now();
 
+  const isWeekend = [0, 6].includes(new Date().getDay()); // 0=Sun, 6=Sat
+
   if (inQuiet) {
     // Freeze timer: snooze overdue tasks forward to quiet-end, staggered 2 min apart
     const overdue = tasks.filter(t => t.status === 'active' && new Date(t.next_reminder).getTime() <= now);
     const minsUntilEnd = Math.ceil(msUntilQuietEnd(qEnd) / 60000);
     for (let i = 0; i < overdue.length; i++) {
-      await fetch(`${apiBase}/tasks/${overdue[i].id}`, {
+      const task = overdue[i];
+      const isWeekdayOnly = task.tags && task.tags.some(t => t.weekday_only);
+      const snoozeMinutes = (isWeekend && isWeekdayOnly) ? minsUntilMonday() : (minsUntilEnd + i * 2);
+      await fetch(`${apiBase}/tasks/${task.id}`, {
         method: 'PATCH',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'snooze', minutes: minsUntilEnd + i * 2 })
+        body: JSON.stringify({ action: 'snooze', minutes: snoozeMinutes })
       }).catch(() => {});
     }
     return;
@@ -87,6 +102,16 @@ async function checkAndNotify() {
           method: 'PATCH',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'snooze', minutes: minsUntilEnd })
+        }).catch(() => {});
+        continue;
+      }
+
+      // Weekday-only tag: snooze to Monday if it's the weekend
+      if (isWeekend && task.tags.some(t => t.weekday_only)) {
+        await fetch(`${apiBase}/tasks/${task.id}`, {
+          method: 'PATCH',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'snooze', minutes: minsUntilMonday() })
         }).catch(() => {});
         continue;
       }
