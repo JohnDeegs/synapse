@@ -206,6 +206,50 @@ function escalateAllDueTasks() {
   return count;
 }
 
+function isInQuietWindowUTC(start, end) {
+  const hour = new Date().getUTCHours();
+  if (start < end) return hour >= start && hour < end; // e.g. 9→17
+  return hour >= start || hour < end;                  // midnight-crossing e.g. 17→9
+}
+
+function msUntilQuietEndUTC(endHour) {
+  const target = new Date();
+  target.setUTCHours(endHour, 0, 0, 0);
+  if (target.getTime() <= Date.now()) target.setUTCDate(target.getUTCDate() + 1);
+  return target.getTime() - Date.now();
+}
+
+/**
+ * For any overdue active task whose tags have an active quiet window,
+ * push next_reminder forward to that window's end. Runs every 5 min so
+ * the dashboard and Telegram stay clean during off-hours.
+ * NOTE: quiet_start/end are compared against UTC hours (no timezone stored).
+ * Returns count of tasks deferred.
+ */
+function deferTasksDuringTagQuietHours() {
+  const overdue = stmts.getAllOverdueActiveTasks.all(new Date().toISOString());
+  let count = 0;
+  for (const task of overdue) {
+    const tags = stmts.getTagsForTask.all(task.id);
+    const quietTag = tags.find(t =>
+      t.quiet_start !== null && t.quiet_end !== null &&
+      isInQuietWindowUTC(t.quiet_start, t.quiet_end)
+    );
+    if (!quietTag) continue;
+    const nextReminder = new Date(Date.now() + msUntilQuietEndUTC(quietTag.quiet_end)).toISOString();
+    stmts.updateTask.run({
+      id: task.id,
+      status: task.status,
+      priority: task.priority,
+      checkinCount: task.checkin_count,
+      nextReminder,
+      priorityLocked: task.priority_locked || 0,
+    });
+    count++;
+  }
+  return count;
+}
+
 /**
  * On weekends, push overdue weekday-only tasks forward to Monday 00:00 UTC
  * so they don't show as overdue on the web dashboard or fire Telegram alerts.
@@ -261,6 +305,7 @@ module.exports = {
   calcNextReminder,
   taskHasWeekdayOnlyTag,
   snapshotDailyHealth,
+  deferTasksDuringTagQuietHours,
   deferWeekdayOnlyTasksForWeekend,
   createTask,
   getActiveTasks,

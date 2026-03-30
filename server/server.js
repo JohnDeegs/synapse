@@ -9,7 +9,7 @@ const {
   createTask, getActiveTasks, getTaskById,
   checkinTask, completeTask, snoozeTask, deleteTask, updateTaskContent,
   changePriority, unlockTaskPriority, escalateAllDueTasks, snapshotDailyHealth,
-  deferWeekdayOnlyTasksForWeekend, getBlockedTaskIds,
+  deferTasksDuringTagQuietHours, deferWeekdayOnlyTasksForWeekend, getBlockedTaskIds,
 } = require('./tasks');
 const telegram = require('./telegram');
 const { sendDailyBriefings, sendOverdueAlerts } = telegram;
@@ -690,6 +690,12 @@ function scheduleDailyBriefing() {
 /** Send overdue task alerts to Telegram users every 5 minutes. */
 function scheduleOverdueAlerts() {
   setInterval(() => {
+    try {
+      const n = deferTasksDuringTagQuietHours();
+      if (n > 0) console.log(`Quiet-hour defer: ${n} task(s) pushed past quiet window.`);
+    } catch (e) {
+      console.error('Quiet-hour defer error:', e.message);
+    }
     sendOverdueAlerts().catch(e => console.error('Overdue alert error:', e.message));
   }, 5 * 60 * 1000);
 }
