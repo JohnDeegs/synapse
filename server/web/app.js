@@ -14,6 +14,7 @@ let filterDue    = 'all'; // 'all' | 'today' | 'week' | 'month'
 let selectedTaskIds = new Set();
 let countdownTimer = null;
 let autoRefreshTimer = null;
+let pendingPatch = 0; // count of in-flight PATCH requests — suppress auto-refresh while > 0
 let newTaskMDE = null; // EasyMDE instance for the new-task form (lazy-init)
 let newTaskDP  = null; // DatePicker instance for the new-task form (lazy-init)
 let openQuietTagId = null; // which tag's quiet-hours popout is open
@@ -199,6 +200,7 @@ async function generateTelegramCode() {
 
 // ── Task API ───────────────────────────────────────────────────────────────────
 async function fetchTasks() {
+  if (pendingPatch > 0) return; // don't clobber in-flight mutations
   allTasks = await api('GET', '/tasks?status=all');
   // Remove selected IDs that no longer exist in the task list
   const existingIds = new Set(allTasks.map(t => t.id));
@@ -220,6 +222,7 @@ async function createTask(title, priority, description, dueDate) {
 }
 
 async function patchTask(id, body) {
+  pendingPatch++;
   let freshTask = null;
   try {
     const updated = await api('PATCH', `/tasks/${id}`, body);
@@ -230,9 +233,11 @@ async function patchTask(id, body) {
     if (e.status === 404) {
       allTasks = allTasks.filter(t => t.id !== id);
     } else {
+      pendingPatch--;
       throw e;
     }
   }
+  pendingPatch--;
   renderTasks();
   updateStats();
   if (body.action === 'checkin' || body.action === 'complete') {
@@ -1253,8 +1258,8 @@ function showApp() {
   initQuietHoursUI();
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(updateCountdowns, 30_000);
-  // Auto-refresh disabled — was overwriting manual priority changes in the UI
-  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(() => fetchTasks().catch(() => {}), 30_000);
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
