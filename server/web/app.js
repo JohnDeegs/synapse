@@ -199,6 +199,12 @@ async function generateTelegramCode() {
 }
 
 // ── Task API ───────────────────────────────────────────────────────────────────
+
+function isHourInQuietWindow(start, end, hour) {
+  if (start < end) return hour >= start && hour < end;
+  return hour >= start || hour < end; // midnight-crossing e.g. 17→9
+}
+
 async function fetchTasks() {
   if (pendingPatch > 0) return; // don't clobber in-flight mutations
   allTasks = await api('GET', '/tasks?status=all');
@@ -207,6 +213,25 @@ async function fetchTasks() {
   for (const id of [...selectedTaskIds]) {
     if (!existingIds.has(id)) selectedTaskIds.delete(id);
   }
+
+  // If a task is overdue but its next_reminder falls inside one of its tag's
+  // quiet windows, the extension wasn't running to catch it. Reset to 1 min
+  // from now so it shows as due rather than hours overdue.
+  const now = Date.now();
+  for (const task of allTasks) {
+    if (task.status !== 'active') continue;
+    if (new Date(task.next_reminder).getTime() > now) continue;
+    if (!task.tags || task.tags.length === 0) continue;
+    const reminderHour = new Date(task.next_reminder).getHours();
+    const missed = task.tags.find(t =>
+      t.quiet_start !== null && t.quiet_end !== null &&
+      isHourInQuietWindow(t.quiet_start, t.quiet_end, reminderHour)
+    );
+    if (missed) {
+      patchTask(task.id, { action: 'snooze', minutes: 1 }).catch(() => {});
+    }
+  }
+
   renderTasks();
   updateStats();
 }
