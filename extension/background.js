@@ -113,11 +113,11 @@ async function checkAndNotify() {
         isDuringQuietHours(tag.quiet_start, tag.quiet_end, reminderHour)
       );
       if (missedQuietTag) {
-        const minsUntilEnd = Math.ceil(msUntilQuietEnd(missedQuietTag.quiet_end) / 60000);
+        // Quiet hours already ended — task is due now, just reset the counter
         await fetch(`${apiBase}/tasks/${task.id}`, {
           method: 'PATCH',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'snooze', minutes: minsUntilEnd })
+          body: JSON.stringify({ action: 'snooze', minutes: 0 })
         }).catch(() => {});
         continue;
       }

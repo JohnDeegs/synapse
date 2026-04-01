@@ -247,7 +247,8 @@ async function fetchTasks() {
       isHourInQuietWindow(t.quiet_start, t.quiet_end, reminderHour)
     );
     if (missedQuietTag) {
-      patchTask(task.id, { action: 'snooze', minutes: minsUntilLocalHour(missedQuietTag.quiet_end) }).catch(() => {});
+      // Quiet hours already ended — task is due now, just reset the counter
+      patchTask(task.id, { action: 'snooze', minutes: 0 }).catch(() => {});
     }
   }
 
