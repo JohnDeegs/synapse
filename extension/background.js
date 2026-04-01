@@ -31,8 +31,7 @@ function minsUntilMonday() {
   return Math.ceil((mon.getTime() - now.getTime()) / 60000);
 }
 
-function isDuringQuietHours(start, end) {
-  const hour = new Date().getHours(); // 0–23 local time
+function isDuringQuietHours(start, end, hour = new Date().getHours()) {
   if (start < end) return hour >= start && hour < end; // normal window e.g. 9→17
   return hour >= start || hour < end;                  // midnight-crossing e.g. 23→7
 }
@@ -102,6 +101,23 @@ async function checkAndNotify() {
           method: 'PATCH',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'snooze', minutes: minsUntilEnd })
+        }).catch(() => {});
+        continue;
+      }
+
+      // next_reminder was set to a quiet-hours time but the extension wasn't
+      // running to catch it (e.g. computer was off overnight). Reset to 1 min
+      // from now so it shows as "due" rather than "Xh overdue".
+      const reminderHour = new Date(task.next_reminder).getHours();
+      const missedQuietTag = task.tags.find(tag =>
+        tag.quiet_start !== null && tag.quiet_end !== null &&
+        isDuringQuietHours(tag.quiet_start, tag.quiet_end, reminderHour)
+      );
+      if (missedQuietTag) {
+        await fetch(`${apiBase}/tasks/${task.id}`, {
+          method: 'PATCH',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'snooze', minutes: 1 })
         }).catch(() => {});
         continue;
       }
