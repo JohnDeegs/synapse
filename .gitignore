@@ -13,3 +13,19 @@ server/.env
 # OS
 .DS_Store
 Thumbs.db
+
+# Internal planning and notes
+notes.md
+plan.md
+planV2_5.md
+previous_project_learnings.md
+tasks.md
+tasksV2.md
+
+# Claude Code
+.claude/
+
+# Screenshots / local images
+*.png
+*.jpg
+*.jpeg
