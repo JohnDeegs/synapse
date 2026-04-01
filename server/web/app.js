@@ -205,6 +205,13 @@ function isHourInQuietWindow(start, end, hour) {
   return hour >= start || hour < end; // midnight-crossing e.g. 17→9
 }
 
+function minsUntilLocalHour(endHour) {
+  const target = new Date();
+  target.setHours(endHour, 0, 0, 0);
+  if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
+  return Math.ceil((target.getTime() - Date.now()) / 60000);
+}
+
 async function fetchTasks() {
   if (pendingPatch > 0) return; // don't clobber in-flight mutations
   allTasks = await api('GET', '/tasks?status=all');
@@ -214,21 +221,33 @@ async function fetchTasks() {
     if (!existingIds.has(id)) selectedTaskIds.delete(id);
   }
 
-  // If a task is overdue but its next_reminder falls inside one of its tag's
-  // quiet windows, the extension wasn't running to catch it. Reset to 1 min
-  // from now so it shows as due rather than hours overdue.
+  // Enforce tag quiet hours client-side (browser local time, no timezone needed).
+  // Case 1: currently inside a quiet window → snooze to quiet_end.
+  // Case 2: quiet window has passed but next_reminder was set inside it
+  //         (computer was off, extension missed it) → snooze to quiet_end.
   const now = Date.now();
+  const currentHour = new Date().getHours();
   for (const task of allTasks) {
     if (task.status !== 'active') continue;
     if (new Date(task.next_reminder).getTime() > now) continue;
     if (!task.tags || task.tags.length === 0) continue;
+
+    const activeQuietTag = task.tags.find(t =>
+      t.quiet_start !== null && t.quiet_end !== null &&
+      isHourInQuietWindow(t.quiet_start, t.quiet_end, currentHour)
+    );
+    if (activeQuietTag) {
+      patchTask(task.id, { action: 'snooze', minutes: minsUntilLocalHour(activeQuietTag.quiet_end) }).catch(() => {});
+      continue;
+    }
+
     const reminderHour = new Date(task.next_reminder).getHours();
-    const missed = task.tags.find(t =>
+    const missedQuietTag = task.tags.find(t =>
       t.quiet_start !== null && t.quiet_end !== null &&
       isHourInQuietWindow(t.quiet_start, t.quiet_end, reminderHour)
     );
-    if (missed) {
-      patchTask(task.id, { action: 'snooze', minutes: 1 }).catch(() => {});
+    if (missedQuietTag) {
+      patchTask(task.id, { action: 'snooze', minutes: minsUntilLocalHour(missedQuietTag.quiet_end) }).catch(() => {});
     }
   }
 
