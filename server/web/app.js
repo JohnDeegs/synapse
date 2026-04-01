@@ -232,23 +232,13 @@ async function fetchTasks() {
     if (new Date(task.next_reminder).getTime() > now) continue;
     if (!task.tags || task.tags.length === 0) continue;
 
+    // Currently inside a quiet window — snooze to quiet_end
     const activeQuietTag = task.tags.find(t =>
       t.quiet_start !== null && t.quiet_end !== null &&
       isHourInQuietWindow(t.quiet_start, t.quiet_end, currentHour)
     );
     if (activeQuietTag) {
       patchTask(task.id, { action: 'snooze', minutes: minsUntilLocalHour(activeQuietTag.quiet_end) }).catch(() => {});
-      continue;
-    }
-
-    const reminderHour = new Date(task.next_reminder).getHours();
-    const missedQuietTag = task.tags.find(t =>
-      t.quiet_start !== null && t.quiet_end !== null &&
-      isHourInQuietWindow(t.quiet_start, t.quiet_end, reminderHour)
-    );
-    if (missedQuietTag) {
-      // Quiet hours already ended — task is due now, just reset the counter
-      patchTask(task.id, { action: 'snooze', minutes: 0 }).catch(() => {});
     }
   }
 

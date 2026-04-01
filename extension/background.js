@@ -105,22 +105,6 @@ async function checkAndNotify() {
         continue;
       }
 
-      // next_reminder was set to a quiet-hours time but the extension wasn't
-      // running to catch it (e.g. computer was off overnight). Snooze to quiet_end.
-      const reminderHour = new Date(task.next_reminder).getHours();
-      const missedQuietTag = task.tags.find(tag =>
-        tag.quiet_start !== null && tag.quiet_end !== null &&
-        isDuringQuietHours(tag.quiet_start, tag.quiet_end, reminderHour)
-      );
-      if (missedQuietTag) {
-        // Quiet hours already ended — task is due now, just reset the counter
-        await fetch(`${apiBase}/tasks/${task.id}`, {
-          method: 'PATCH',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'snooze', minutes: 0 })
-        }).catch(() => {});
-        continue;
-      }
 
       // Weekday-only tag: snooze to Monday if it's the weekend
       if (isWeekend && task.tags.some(t => t.weekday_only)) {
