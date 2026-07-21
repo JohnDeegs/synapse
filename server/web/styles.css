@@ -433,6 +433,47 @@ button { cursor: pointer; font-family: inherit; font-size: 14px; }
   box-shadow: 0 0 0 2px rgba(26,115,232,.2);
 }
 
+.quickadd-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: -4px 0 10px;
+  min-height: 20px;
+}
+
+.quickadd-preview:empty { margin: 0; min-height: 0; }
+
+.quickadd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  padding: 2px 6px 2px 8px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.quickadd-chip-tag { background: #e8f0fe; color: var(--accent); }
+html.dark .quickadd-chip-tag { background: #174ea6; color: #aecbfa; }
+
+.quickadd-chip-project { background: rgba(80,160,80,.2); color: var(--text-secondary); }
+
+.quickadd-chip-time { background: rgba(160,120,40,.2); color: var(--text-secondary); }
+
+.quickadd-chip button {
+  background: none;
+  border: none;
+  color: inherit;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: .6;
+}
+
+.quickadd-chip button:hover { opacity: 1; }
+
 .form-actions { display: flex; gap: 8px; align-items: center; }
 
 /* ── Task List ────────────────────────────────────────────────────────────── */

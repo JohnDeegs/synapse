@@ -194,7 +194,8 @@
           <!-- New Task Form -->
           <div id="new-task-form" class="new-task-form hidden">
             <h3>New Task</h3>
-            <input type="text" id="new-title" placeholder="Task title" required>
+            <input type="text" id="new-title" placeholder="Submit invoice every Friday at 9am #Finance @Work p1" required>
+            <div id="new-quickadd-preview" class="quickadd-preview"></div>
             <select id="new-priority">
               <option value="P0">P0 – Critical (every 30 min)</option>
               <option value="P1">P1 – High (every 2 hr)</option>
@@ -244,6 +245,8 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
   <script src="/web/datepicker.js"></script>
+  <script src="/web/vendor/chrono.min.js"></script>
+  <script src="/web/quickadd.js"></script>
   <script src="/web/app.js"></script>
 </body>
 </html>

@@ -16,6 +16,7 @@ let countdownTimer = null;
 let autoRefreshTimer = null;
 let newTaskMDE = null; // EasyMDE instance for the new-task form (lazy-init)
 let newTaskDP  = null; // DatePicker instance for the new-task form (lazy-init)
+let pendingQuickAdd = null; // last parseQuickAdd() result for the new-task title input
 let openQuietTagId = null; // which tag's quiet-hours popout is open
 // Modal state
 let openModalTaskId = null;
@@ -217,6 +218,74 @@ async function createTask(title, priority, description, dueDate) {
   allTasks.push(task);
   renderTasks();
   updateStats();
+  return task;
+}
+
+// ── Quick-add tag/project resolution ────────────────────────────────────────────
+// Finds an existing tag/project by case-insensitive name, creating it if missing.
+async function resolveTagId(name) {
+  const existing = allTags.find(t => t.name.toLowerCase() === name.toLowerCase());
+  if (existing) return existing.id;
+  const tag = await api('POST', '/tags', { name });
+  allTags.push(tag);
+  allTags.sort((a, b) => a.name.localeCompare(b.name));
+  renderTagSidebar();
+  return tag.id;
+}
+
+async function resolveProjectId(name) {
+  const existing = allProjects.find(p => p.name.toLowerCase() === name.toLowerCase());
+  if (existing) return existing.id;
+  const project = await api('POST', '/projects', { name });
+  allProjects.push(project);
+  allProjects.sort((a, b) => a.name.localeCompare(b.name));
+  renderProjectSidebar();
+  return project.id;
+}
+
+function renderQuickAddPreview() {
+  const el = document.getElementById('new-quickadd-preview');
+  if (!el) return;
+  if (!pendingQuickAdd) { el.innerHTML = ''; return; }
+  const chips = [];
+  for (const name of pendingQuickAdd.tags) {
+    chips.push(`<span class="quickadd-chip quickadd-chip-tag" data-kind="tag" data-name="${esc(name)}">#${esc(name)}<button type="button" title="Remove">×</button></span>`);
+  }
+  if (pendingQuickAdd.project) {
+    chips.push(`<span class="quickadd-chip quickadd-chip-project" data-kind="project">@${esc(pendingQuickAdd.project)}<button type="button" title="Remove">×</button></span>`);
+  }
+  if (pendingQuickAdd.dueTimeMs) {
+    const timeStr = new Date(pendingQuickAdd.dueTimeMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    chips.push(`<span class="quickadd-chip quickadd-chip-time" data-kind="time">⏰ ${esc(timeStr)}<button type="button" title="Remove">×</button></span>`);
+  }
+  el.innerHTML = chips.join('');
+}
+
+// Applies the tag/project/time-of-day parts of a parseQuickAdd() result to an
+// already-created task. Runs after POST /tasks since none of those fields are
+// accepted at creation time.
+async function applyQuickAddExtras(task, parsed) {
+  for (const tagName of parsed.tags) {
+    const tagId = await resolveTagId(tagName);
+    await api('POST', `/tasks/${task.id}/tags`, { tagId });
+  }
+  if (parsed.project) {
+    const projectId = await resolveProjectId(parsed.project);
+    await patchTask(task.id, { action: 'update', project_id: projectId });
+  }
+  if (parsed.dueTimeMs) {
+    const minutes = Math.round((parsed.dueTimeMs - Date.now()) / 60000);
+    await patchTask(task.id, { action: 'snooze', minutes });
+  }
+  if (parsed.tags.length) {
+    // Tag assignment doesn't go through patchTask, so pull the fresh tag list.
+    const idx = allTasks.findIndex(t => t.id === task.id);
+    if (idx !== -1) {
+      const tagRows = allTags.filter(t => parsed.tags.some(n => n.toLowerCase() === t.name.toLowerCase()));
+      allTasks[idx].tags = [...(allTasks[idx].tags || []), ...tagRows];
+      renderTasks();
+    }
+  }
 }
 
 async function patchTask(id, body) {
@@ -1327,9 +1396,36 @@ function init() {
     document.getElementById('new-task-form').classList.add('hidden');
   });
 
+  // Quick-add: live-parse the title field into priority/due-date/tags/project
+  document.getElementById('new-title').addEventListener('input', e => {
+    pendingQuickAdd = parseQuickAdd(e.target.value, {
+      tagNames: allTags.map(t => t.name),
+      projectNames: allProjects.map(p => p.name),
+    });
+    if (pendingQuickAdd.priority) document.getElementById('new-priority').value = pendingQuickAdd.priority;
+    if (pendingQuickAdd.dueDate && newTaskDP) {
+      newTaskDP.setValue(pendingQuickAdd.dueDate);
+      document.getElementById('new-due-date-btn').textContent = `📅 ${pendingQuickAdd.dueDate}`;
+    }
+    renderQuickAddPreview();
+  });
+
+  // Quick-add preview chip removal (delegated — chips are re-rendered on every keystroke)
+  document.getElementById('new-quickadd-preview').addEventListener('click', e => {
+    const chip = e.target.closest('.quickadd-chip');
+    if (!chip || !pendingQuickAdd) return;
+    const kind = chip.dataset.kind;
+    if (kind === 'tag') pendingQuickAdd.tags = pendingQuickAdd.tags.filter(n => n !== chip.dataset.name);
+    else if (kind === 'project') pendingQuickAdd.project = null;
+    else if (kind === 'time') pendingQuickAdd.dueTimeMs = null;
+    renderQuickAddPreview();
+  });
+
   // Create task
   document.getElementById('btn-create-task').addEventListener('click', async () => {
-    const title = document.getElementById('new-title').value.trim();
+    const rawTitle = document.getElementById('new-title').value.trim();
+    const parsed = pendingQuickAdd;
+    const title = parsed ? parsed.title : rawTitle;
     const priority = document.getElementById('new-priority').value;
     const description = newTaskMDE ? newTaskMDE.value().trim() : '';
     const dueDate = newTaskDP ? newTaskDP.value : null;
@@ -1337,7 +1433,8 @@ function init() {
     errEl.textContent = '';
     if (!title) { errEl.textContent = 'Title is required.'; return; }
     try {
-      await createTask(title, priority, description, dueDate);
+      const task = await createTask(title, priority, description, dueDate);
+      if (parsed) await applyQuickAddExtras(task, parsed);
       document.getElementById('new-title').value = '';
       document.getElementById('new-priority').value = 'P2';
       if (newTaskDP) {
@@ -1346,6 +1443,8 @@ function init() {
         document.getElementById('new-due-date-btn').textContent = `📅 ${todayStr}`;
       }
       if (newTaskMDE) newTaskMDE.value('');
+      pendingQuickAdd = null;
+      renderQuickAddPreview();
       document.getElementById('new-task-form').classList.add('hidden');
     } catch (err) { errEl.textContent = err.message; }
   });
