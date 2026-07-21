@@ -59,6 +59,38 @@
     #add-form .form-row button:hover { background: #7d6ef7; }
     #add-error { color: #f55; font-size: 0.8rem; min-height: 16px; }
 
+    /* Quick-add preview chips */
+    .quickadd-preview {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      min-height: 0;
+    }
+    .quickadd-preview:empty { display: none; }
+    .quickadd-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 0.72rem;
+      padding: 2px 6px 2px 8px;
+      border-radius: 10px;
+      white-space: nowrap;
+    }
+    .quickadd-chip-tag { background: #1e2a4d; color: #8fb4ff; }
+    .quickadd-chip-project { background: #1a2e1a; color: #6bcf6b; }
+    .quickadd-chip-time { background: #3d2e0a; color: #ffa94d; }
+    .quickadd-chip button {
+      background: none;
+      border: none;
+      color: inherit;
+      padding: 0;
+      font-size: 0.8rem;
+      line-height: 1;
+      cursor: pointer;
+      opacity: .6;
+    }
+    .quickadd-chip button:hover { opacity: 1; }
+
     /* Task list */
     #task-list { display: flex; flex-direction: column; gap: 8px; }
     #task-list .empty { color: #666; font-size: 0.85rem; text-align: center; padding: 16px 0; }
@@ -239,7 +271,8 @@
 
   <div id="main" style="display:none">
     <form id="add-form">
-      <input type="text" id="new-title" placeholder="New task title…" required />
+      <input type="text" id="new-title" placeholder="Submit invoice every Fri at 9am #finance @work p1" required />
+      <div id="new-quickadd-preview" class="quickadd-preview"></div>
       <textarea id="new-desc" placeholder="Description (optional)"></textarea>
       <button type="button" id="new-due-date-btn" class="dp-trigger">📅 Loading…</button>
       <div class="form-row">
@@ -269,6 +302,8 @@
   </div>
 
   <script src="datepicker.js"></script>
+  <script src="vendor/chrono.min.js"></script>
+  <script src="quickadd.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

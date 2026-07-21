@@ -4,6 +4,9 @@ let apiBase = '';
 let token = '';
 let filterDue = 'all';
 let allTasks = [];
+let allTags = []; // used only for quick-add tag name resolution — no tag UI in the popup
+let allProjects = []; // used only for quick-add project name resolution
+let pendingQuickAdd = null; // last parseQuickAdd() result for the new-task title input
 
 function applyDueFilter(tasks) {
   if (filterDue === 'all') return tasks;
@@ -207,16 +210,99 @@ async function addTask(title, priority, description, dueDate) {
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       errEl.textContent = data.error || `Error ${res.status}`;
-      return;
+      return null;
     }
+    const task = await res.json();
     // Clear form and refresh
     document.getElementById('new-title').value = '';
     document.getElementById('new-desc').value = '';
     document.getElementById('new-priority').value = 'P2';
     await loadTasks();
+    return task;
   } catch (err) {
     errEl.textContent = 'Network error. Is the server running?';
+    return null;
   }
+}
+
+// ── Quick-add tag/project resolution ────────────────────────────────────────────
+// The popup has no tag/project management UI of its own — allTags/allProjects
+// here exist only so quick-add can resolve #tag / @project names to ids.
+async function fetchAuthed(path) {
+  const res = await fetch(`${apiBase}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function postAuthed(path, body) {
+  const res = await fetch(`${apiBase}${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+async function loadTagsAndProjects() {
+  try {
+    [allTags, allProjects] = await Promise.all([fetchAuthed('/tags'), fetchAuthed('/projects')]);
+  } catch (err) {
+    // Quick-add degrades gracefully if this fails: #tag/@project tokens just won't resolve.
+  }
+}
+
+async function resolveTagId(name) {
+  const existing = allTags.find(t => t.name.toLowerCase() === name.toLowerCase());
+  if (existing) return existing.id;
+  const tag = await postAuthed('/tags', { name });
+  allTags.push(tag);
+  return tag.id;
+}
+
+async function resolveProjectId(name) {
+  const existing = allProjects.find(p => p.name.toLowerCase() === name.toLowerCase());
+  if (existing) return existing.id;
+  const project = await postAuthed('/projects', { name });
+  allProjects.push(project);
+  return project.id;
+}
+
+// Applies the tag/project/time-of-day parts of a parseQuickAdd() result to an
+// already-created task. Runs after POST /tasks since none of those fields are
+// accepted at creation time.
+async function applyQuickAddExtras(taskId, parsed) {
+  for (const tagName of parsed.tags) {
+    const tagId = await resolveTagId(tagName);
+    await postAuthed(`/tasks/${taskId}/tags`, { tagId });
+  }
+  if (parsed.project) {
+    const projectId = await resolveProjectId(parsed.project);
+    await patchTask(taskId, { action: 'update', project_id: projectId });
+  }
+  if (parsed.dueTimeMs) {
+    const minutes = Math.round((parsed.dueTimeMs - Date.now()) / 60000);
+    await patchTask(taskId, { action: 'snooze', minutes });
+  }
+}
+
+function renderQuickAddPreview() {
+  const el = document.getElementById('new-quickadd-preview');
+  if (!el) return;
+  if (!pendingQuickAdd) { el.innerHTML = ''; return; }
+  const chips = [];
+  for (const name of pendingQuickAdd.tags) {
+    chips.push(`<span class="quickadd-chip quickadd-chip-tag" data-kind="tag" data-name="${escHtml(name)}">#${escHtml(name)}<button type="button" title="Remove">×</button></span>`);
+  }
+  if (pendingQuickAdd.project) {
+    chips.push(`<span class="quickadd-chip quickadd-chip-project" data-kind="project">@${escHtml(pendingQuickAdd.project)}<button type="button" title="Remove">×</button></span>`);
+  }
+  if (pendingQuickAdd.dueTimeMs) {
+    const timeStr = new Date(pendingQuickAdd.dueTimeMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    chips.push(`<span class="quickadd-chip quickadd-chip-time" data-kind="time">⏰ ${escHtml(timeStr)}<button type="button" title="Remove">×</button></span>`);
+  }
+  el.innerHTML = chips.join('');
 }
 
 // Init
@@ -235,6 +321,8 @@ chrome.storage.local.get(['token', 'apiBase'], data => {
 
   document.getElementById('main').style.display = 'block';
 
+  loadTagsAndProjects();
+
   // Init due date picker for add form, defaulting to today
   const todayStr = new Date().toISOString().slice(0, 10);
   const addDueBtn = document.getElementById('new-due-date-btn');
@@ -243,14 +331,48 @@ chrome.storage.local.get(['token', 'apiBase'], data => {
   }, todayStr);
   addDueBtn.textContent = `📅 ${todayStr}`;
 
+  // Quick-add: live-parse the title field into priority/due-date/tags/project
+  document.getElementById('new-title').addEventListener('input', e => {
+    pendingQuickAdd = parseQuickAdd(e.target.value, {
+      tagNames: allTags.map(t => t.name),
+      projectNames: allProjects.map(p => p.name),
+    });
+    if (pendingQuickAdd.priority) document.getElementById('new-priority').value = pendingQuickAdd.priority;
+    if (pendingQuickAdd.dueDate) {
+      addTaskDP.setValue(pendingQuickAdd.dueDate);
+      addDueBtn.textContent = `📅 ${pendingQuickAdd.dueDate}`;
+    }
+    renderQuickAddPreview();
+  });
+
+  // Quick-add preview chip removal (delegated — chips are re-rendered on every keystroke)
+  document.getElementById('new-quickadd-preview').addEventListener('click', e => {
+    const chip = e.target.closest('.quickadd-chip');
+    if (!chip || !pendingQuickAdd) return;
+    const kind = chip.dataset.kind;
+    if (kind === 'tag') pendingQuickAdd.tags = pendingQuickAdd.tags.filter(n => n !== chip.dataset.name);
+    else if (kind === 'project') pendingQuickAdd.project = null;
+    else if (kind === 'time') pendingQuickAdd.dueTimeMs = null;
+    renderQuickAddPreview();
+  });
+
   // Quick-add form submit
-  document.getElementById('add-form').addEventListener('submit', e => {
+  document.getElementById('add-form').addEventListener('submit', async e => {
     e.preventDefault();
-    const title = document.getElementById('new-title').value.trim();
+    const rawTitle = document.getElementById('new-title').value.trim();
+    const parsed = pendingQuickAdd;
+    const title = parsed ? parsed.title : rawTitle;
     const priority = document.getElementById('new-priority').value;
     const description = document.getElementById('new-desc').value.trim();
     const dueDate = addTaskDP.value;
-    if (title) addTask(title, priority, description, dueDate);
+    if (!title) return;
+    const task = await addTask(title, priority, description, dueDate);
+    if (task && parsed) {
+      try { await applyQuickAddExtras(task.id, parsed); } catch (err) { /* extras are best-effort */ }
+      await loadTasks();
+    }
+    pendingQuickAdd = null;
+    renderQuickAddPreview();
   });
 
   // Due date filter buttons
