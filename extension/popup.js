@@ -4,9 +4,11 @@ let apiBase = '';
 let token = '';
 let filterDue = 'all';
 let allTasks = [];
-let allTags = []; // used only for quick-add tag name resolution — no tag UI in the popup
-let allProjects = []; // used only for quick-add project name resolution
+let allTags = []; // powers quick-add tag name resolution and the manual tag select
+let allProjects = []; // powers quick-add project name resolution and the manual project select
 let pendingQuickAdd = null; // last parseQuickAdd() result for the new-task title input
+let manualTagIds = new Set(); // tag ids picked via #new-tag-select
+let manualProjectId = null; // project id picked via #new-project-select
 
 function applyDueFilter(tasks) {
   if (filterDue === 'all') return tasks;
@@ -269,38 +271,67 @@ async function resolveProjectId(name) {
   return project.id;
 }
 
-// Applies the tag/project/time-of-day parts of a parseQuickAdd() result to an
-// already-created task. Runs after POST /tasks since none of those fields are
-// accepted at creation time.
-async function applyQuickAddExtras(taskId, parsed) {
-  for (const tagName of parsed.tags) {
-    const tagId = await resolveTagId(tagName);
+// Applies the tag/project/time-of-day parts of a parseQuickAdd() result, plus any
+// manually-picked project/tags, to an already-created task. Runs after POST /tasks
+// since none of these fields are accepted at creation time.
+async function applyQuickAddExtras(taskId, parsed, manual = { tagIds: new Set(), projectId: null }) {
+  const tagIdSet = new Set(manual.tagIds);
+  if (parsed) {
+    for (const tagName of parsed.tags) {
+      tagIdSet.add(await resolveTagId(tagName));
+    }
+  }
+  for (const tagId of tagIdSet) {
     await postAuthed(`/tasks/${taskId}/tags`, { tagId });
   }
-  if (parsed.project) {
-    const projectId = await resolveProjectId(parsed.project);
+  let projectId = manual.projectId;
+  if (projectId == null && parsed && parsed.project) {
+    projectId = await resolveProjectId(parsed.project);
+  }
+  if (projectId != null) {
     await patchTask(taskId, { action: 'update', project_id: projectId });
   }
-  if (parsed.dueTimeMs) {
+  if (parsed && parsed.dueTimeMs) {
     const minutes = Math.round((parsed.dueTimeMs - Date.now()) / 60000);
     await patchTask(taskId, { action: 'snooze', minutes });
+  }
+}
+
+function renderNewTaskPickers() {
+  const projectSelect = document.getElementById('new-project-select');
+  const tagSelect = document.getElementById('new-tag-select');
+  if (projectSelect) {
+    const options = allProjects.map(p => `<option value="${p.id}">${escHtml(p.name)}</option>`).join('');
+    projectSelect.innerHTML = `<option value="">— No project —</option>${options}`;
+    projectSelect.value = manualProjectId != null && allProjects.some(p => p.id === manualProjectId) ? manualProjectId : '';
+  }
+  if (tagSelect) {
+    const options = allTags.map(t => `<option value="${t.id}">${escHtml(t.name)}</option>`).join('');
+    tagSelect.innerHTML = `<option value="">+ Add tag…</option>${options}`;
+    tagSelect.value = '';
   }
 }
 
 function renderQuickAddPreview() {
   const el = document.getElementById('new-quickadd-preview');
   if (!el) return;
-  if (!pendingQuickAdd) { el.innerHTML = ''; return; }
   const chips = [];
-  for (const name of pendingQuickAdd.tags) {
-    chips.push(`<span class="quickadd-chip quickadd-chip-tag" data-kind="tag" data-name="${escHtml(name)}">#${escHtml(name)}<button type="button" title="Remove">×</button></span>`);
+  if (pendingQuickAdd) {
+    for (const name of pendingQuickAdd.tags) {
+      chips.push(`<span class="quickadd-chip quickadd-chip-tag" data-kind="tag" data-source="parsed" data-name="${escHtml(name)}">#${escHtml(name)}<button type="button" title="Remove">×</button></span>`);
+    }
+    if (pendingQuickAdd.project) {
+      chips.push(`<span class="quickadd-chip quickadd-chip-project" data-kind="project" data-source="parsed">@${escHtml(pendingQuickAdd.project)}<button type="button" title="Remove">×</button></span>`);
+    }
+    if (pendingQuickAdd.dueTimeMs) {
+      const timeStr = new Date(pendingQuickAdd.dueTimeMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      chips.push(`<span class="quickadd-chip quickadd-chip-time" data-kind="time" data-source="parsed">⏰ ${escHtml(timeStr)}<button type="button" title="Remove">×</button></span>`);
+    }
   }
-  if (pendingQuickAdd.project) {
-    chips.push(`<span class="quickadd-chip quickadd-chip-project" data-kind="project">@${escHtml(pendingQuickAdd.project)}<button type="button" title="Remove">×</button></span>`);
-  }
-  if (pendingQuickAdd.dueTimeMs) {
-    const timeStr = new Date(pendingQuickAdd.dueTimeMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    chips.push(`<span class="quickadd-chip quickadd-chip-time" data-kind="time">⏰ ${escHtml(timeStr)}<button type="button" title="Remove">×</button></span>`);
+  for (const tagId of manualTagIds) {
+    const tag = allTags.find(t => t.id === tagId);
+    const name = tag ? tag.name : tagId;
+    chips.push(`<span class="quickadd-chip quickadd-chip-tag" data-kind="tag" data-source="manual" data-id="${tagId}">#${escHtml(name)}<button type="button" title="Remove">×</button></span>`);
   }
   el.innerHTML = chips.join('');
 }
@@ -321,7 +352,7 @@ chrome.storage.local.get(['token', 'apiBase'], data => {
 
   document.getElementById('main').style.display = 'block';
 
-  loadTagsAndProjects();
+  loadTagsAndProjects().then(renderNewTaskPickers);
 
   // Init due date picker for add form, defaulting to today
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -348,11 +379,28 @@ chrome.storage.local.get(['token', 'apiBase'], data => {
   // Quick-add preview chip removal (delegated — chips are re-rendered on every keystroke)
   document.getElementById('new-quickadd-preview').addEventListener('click', e => {
     const chip = e.target.closest('.quickadd-chip');
-    if (!chip || !pendingQuickAdd) return;
+    if (!chip) return;
+    if (chip.dataset.source === 'manual') {
+      manualTagIds.delete(parseInt(chip.dataset.id, 10));
+      renderQuickAddPreview();
+      return;
+    }
+    if (!pendingQuickAdd) return;
     const kind = chip.dataset.kind;
     if (kind === 'tag') pendingQuickAdd.tags = pendingQuickAdd.tags.filter(n => n !== chip.dataset.name);
     else if (kind === 'project') pendingQuickAdd.project = null;
     else if (kind === 'time') pendingQuickAdd.dueTimeMs = null;
+    renderQuickAddPreview();
+  });
+
+  // Manual project/tag pickers
+  document.getElementById('new-project-select').addEventListener('change', e => {
+    manualProjectId = e.target.value ? parseInt(e.target.value, 10) : null;
+  });
+  document.getElementById('new-tag-select').addEventListener('change', e => {
+    if (!e.target.value) return;
+    manualTagIds.add(parseInt(e.target.value, 10));
+    e.target.value = '';
     renderQuickAddPreview();
   });
 
@@ -367,11 +415,17 @@ chrome.storage.local.get(['token', 'apiBase'], data => {
     const dueDate = addTaskDP.value;
     if (!title) return;
     const task = await addTask(title, priority, description, dueDate);
-    if (task && parsed) {
-      try { await applyQuickAddExtras(task.id, parsed); } catch (err) { /* extras are best-effort */ }
+    if (task) {
+      try {
+        await applyQuickAddExtras(task.id, parsed, { tagIds: manualTagIds, projectId: manualProjectId });
+      } catch (err) { /* extras are best-effort */ }
       await loadTasks();
+      renderNewTaskPickers();
     }
     pendingQuickAdd = null;
+    manualTagIds = new Set();
+    manualProjectId = null;
+    document.getElementById('new-project-select').value = '';
     renderQuickAddPreview();
   });
 
