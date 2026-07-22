@@ -17,6 +17,8 @@ let autoRefreshTimer = null;
 let newTaskMDE = null; // EasyMDE instance for the new-task form (lazy-init)
 let newTaskDP  = null; // DatePicker instance for the new-task form (lazy-init)
 let pendingQuickAdd = null; // last parseQuickAdd() result for the new-task title input
+let manualTagIds = new Set(); // tag ids picked via #new-tag-select
+let manualProjectId = null; // project id picked via #new-project-select
 let openQuietTagId = null; // which tag's quiet-hours popout is open
 // Modal state
 let openModalTaskId = null;
@@ -243,45 +245,74 @@ async function resolveProjectId(name) {
   return project.id;
 }
 
+function renderNewTaskPickers() {
+  const projectSelect = document.getElementById('new-project-select');
+  const tagSelect = document.getElementById('new-tag-select');
+  if (projectSelect) {
+    const options = allProjects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+    projectSelect.innerHTML = `<option value="">— No project —</option>${options}`;
+    projectSelect.value = manualProjectId != null && allProjects.some(p => p.id === manualProjectId) ? manualProjectId : '';
+  }
+  if (tagSelect) {
+    const options = allTags.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+    tagSelect.innerHTML = `<option value="">+ Add tag…</option>${options}`;
+    tagSelect.value = '';
+  }
+}
+
 function renderQuickAddPreview() {
   const el = document.getElementById('new-quickadd-preview');
   if (!el) return;
-  if (!pendingQuickAdd) { el.innerHTML = ''; return; }
   const chips = [];
-  for (const name of pendingQuickAdd.tags) {
-    chips.push(`<span class="quickadd-chip quickadd-chip-tag" data-kind="tag" data-name="${esc(name)}">#${esc(name)}<button type="button" title="Remove">×</button></span>`);
+  if (pendingQuickAdd) {
+    for (const name of pendingQuickAdd.tags) {
+      chips.push(`<span class="quickadd-chip quickadd-chip-tag" data-kind="tag" data-source="parsed" data-name="${esc(name)}">#${esc(name)}<button type="button" title="Remove">×</button></span>`);
+    }
+    if (pendingQuickAdd.project) {
+      chips.push(`<span class="quickadd-chip quickadd-chip-project" data-kind="project" data-source="parsed">@${esc(pendingQuickAdd.project)}<button type="button" title="Remove">×</button></span>`);
+    }
+    if (pendingQuickAdd.dueTimeMs) {
+      const timeStr = new Date(pendingQuickAdd.dueTimeMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      chips.push(`<span class="quickadd-chip quickadd-chip-time" data-kind="time" data-source="parsed">⏰ ${esc(timeStr)}<button type="button" title="Remove">×</button></span>`);
+    }
   }
-  if (pendingQuickAdd.project) {
-    chips.push(`<span class="quickadd-chip quickadd-chip-project" data-kind="project">@${esc(pendingQuickAdd.project)}<button type="button" title="Remove">×</button></span>`);
-  }
-  if (pendingQuickAdd.dueTimeMs) {
-    const timeStr = new Date(pendingQuickAdd.dueTimeMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    chips.push(`<span class="quickadd-chip quickadd-chip-time" data-kind="time">⏰ ${esc(timeStr)}<button type="button" title="Remove">×</button></span>`);
+  for (const tagId of manualTagIds) {
+    const tag = allTags.find(t => t.id === tagId);
+    const name = tag ? tag.name : tagId;
+    chips.push(`<span class="quickadd-chip quickadd-chip-tag" data-kind="tag" data-source="manual" data-id="${tagId}">#${esc(name)}<button type="button" title="Remove">×</button></span>`);
   }
   el.innerHTML = chips.join('');
 }
 
-// Applies the tag/project/time-of-day parts of a parseQuickAdd() result to an
-// already-created task. Runs after POST /tasks since none of those fields are
-// accepted at creation time.
-async function applyQuickAddExtras(task, parsed) {
-  for (const tagName of parsed.tags) {
-    const tagId = await resolveTagId(tagName);
+// Applies the tag/project/time-of-day parts of a parseQuickAdd() result, plus any
+// manually-picked project/tags, to an already-created task. Runs after POST /tasks
+// since none of these fields are accepted at creation time.
+async function applyQuickAddExtras(task, parsed, manual = { tagIds: new Set(), projectId: null }) {
+  const tagIdSet = new Set(manual.tagIds);
+  if (parsed) {
+    for (const tagName of parsed.tags) {
+      tagIdSet.add(await resolveTagId(tagName));
+    }
+  }
+  for (const tagId of tagIdSet) {
     await api('POST', `/tasks/${task.id}/tags`, { tagId });
   }
-  if (parsed.project) {
-    const projectId = await resolveProjectId(parsed.project);
+  let projectId = manual.projectId;
+  if (projectId == null && parsed && parsed.project) {
+    projectId = await resolveProjectId(parsed.project);
+  }
+  if (projectId != null) {
     await patchTask(task.id, { action: 'update', project_id: projectId });
   }
-  if (parsed.dueTimeMs) {
+  if (parsed && parsed.dueTimeMs) {
     const minutes = Math.round((parsed.dueTimeMs - Date.now()) / 60000);
     await patchTask(task.id, { action: 'snooze', minutes });
   }
-  if (parsed.tags.length) {
+  if (tagIdSet.size) {
     // Tag assignment doesn't go through patchTask, so pull the fresh tag list.
     const idx = allTasks.findIndex(t => t.id === task.id);
     if (idx !== -1) {
-      const tagRows = allTags.filter(t => parsed.tags.some(n => n.toLowerCase() === t.name.toLowerCase()));
+      const tagRows = allTags.filter(t => tagIdSet.has(t.id));
       allTasks[idx].tags = [...(allTasks[idx].tags || []), ...tagRows];
       renderTasks();
     }
@@ -1316,7 +1347,7 @@ function showApp() {
   document.getElementById('view-app').classList.remove('hidden');
   document.getElementById('user-email').textContent = userEmail || '';
   // Load tags and projects first so pickers are populated when task cards render
-  Promise.all([fetchTags(), fetchProjects()]).then(() => fetchTasks()).catch(e => console.error(e));
+  Promise.all([fetchTags(), fetchProjects()]).then(() => { renderNewTaskPickers(); fetchTasks(); }).catch(e => console.error(e));
   fetchAndRenderHealthGrid();
   fetchTelegramStatus();
   initQuietHoursUI();
@@ -1389,6 +1420,7 @@ function init() {
         }, todayStr);
         btn.textContent = `📅 ${todayStr}`;
       }
+      renderNewTaskPickers();
       document.getElementById('new-title').focus();
     }
   });
@@ -1413,11 +1445,28 @@ function init() {
   // Quick-add preview chip removal (delegated — chips are re-rendered on every keystroke)
   document.getElementById('new-quickadd-preview').addEventListener('click', e => {
     const chip = e.target.closest('.quickadd-chip');
-    if (!chip || !pendingQuickAdd) return;
+    if (!chip) return;
+    if (chip.dataset.source === 'manual') {
+      manualTagIds.delete(parseInt(chip.dataset.id, 10));
+      renderQuickAddPreview();
+      return;
+    }
+    if (!pendingQuickAdd) return;
     const kind = chip.dataset.kind;
     if (kind === 'tag') pendingQuickAdd.tags = pendingQuickAdd.tags.filter(n => n !== chip.dataset.name);
     else if (kind === 'project') pendingQuickAdd.project = null;
     else if (kind === 'time') pendingQuickAdd.dueTimeMs = null;
+    renderQuickAddPreview();
+  });
+
+  // Manual project/tag pickers
+  document.getElementById('new-project-select').addEventListener('change', e => {
+    manualProjectId = e.target.value ? parseInt(e.target.value, 10) : null;
+  });
+  document.getElementById('new-tag-select').addEventListener('change', e => {
+    if (!e.target.value) return;
+    manualTagIds.add(parseInt(e.target.value, 10));
+    e.target.value = '';
     renderQuickAddPreview();
   });
 
@@ -1434,7 +1483,7 @@ function init() {
     if (!title) { errEl.textContent = 'Title is required.'; return; }
     try {
       const task = await createTask(title, priority, description, dueDate);
-      if (parsed) await applyQuickAddExtras(task, parsed);
+      await applyQuickAddExtras(task, parsed, { tagIds: manualTagIds, projectId: manualProjectId });
       document.getElementById('new-title').value = '';
       document.getElementById('new-priority').value = 'P2';
       if (newTaskDP) {
@@ -1444,6 +1493,9 @@ function init() {
       }
       if (newTaskMDE) newTaskMDE.value('');
       pendingQuickAdd = null;
+      manualTagIds = new Set();
+      manualProjectId = null;
+      document.getElementById('new-project-select').value = '';
       renderQuickAddPreview();
       document.getElementById('new-task-form').classList.add('hidden');
     } catch (err) { errEl.textContent = err.message; }
