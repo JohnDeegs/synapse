@@ -9,7 +9,7 @@ const {
   createTask, getActiveTasks, getTaskById,
   checkinTask, completeTask, snoozeTask, deleteTask, updateTaskContent,
   changePriority, unlockTaskPriority, escalateAllDueTasks, snapshotDailyHealth,
-  getBlockedTaskIds,
+  deferWeekdayOnlyTasksForWeekend, getBlockedTaskIds,
 } = require('./tasks');
 const telegram = require('./telegram');
 const { sendDailyBriefings, sendOverdueAlerts } = telegram;
@@ -136,7 +136,7 @@ async function handleGetTasks(req, res, user) {
   const tagMap = new Map();
   for (const row of tagRows) {
     if (!tagMap.has(row.task_id)) tagMap.set(row.task_id, []);
-    tagMap.get(row.task_id).push({ id: row.id, name: row.name });
+    tagMap.get(row.task_id).push({ id: row.id, name: row.name, weekday_only: row.weekday_only, quiet_start: row.quiet_start, quiet_end: row.quiet_end });
   }
   const blockedIds = new Set(stmts.getBlockedTaskIds.all().map(r => r.blocked_task_id));
   for (const task of tasks) {
@@ -689,9 +689,11 @@ function scheduleDailyBriefing() {
 
 /** Send overdue task alerts to Telegram users every 5 minutes. */
 function scheduleOverdueAlerts() {
-  setInterval(() => {
+  function run() {
     sendOverdueAlerts().catch(e => console.error('Overdue alert error:', e.message));
-  }, 5 * 60 * 1000);
+  }
+  run();
+  setInterval(run, 5 * 60 * 1000);
 }
 
 /** Run due-date escalation and health snapshots every hour. */
@@ -702,6 +704,12 @@ function scheduleHourlyEscalation() {
       if (n > 0) console.log(`Hourly escalation: ${n} task(s) priority-bumped.`);
     } catch (e) {
       console.error('Escalation error:', e.message);
+    }
+    try {
+      const n = deferWeekdayOnlyTasksForWeekend();
+      if (n > 0) console.log(`Weekend defer: ${n} weekday-only task(s) pushed to Monday.`);
+    } catch (e) {
+      console.error('Weekend defer error:', e.message);
     }
     try {
       for (const { id } of stmts.getAllUserIds.all()) {

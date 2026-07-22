@@ -6,7 +6,7 @@ const { stmts } = require('./db');
 const { chat, generateMorningBriefing } = require('./llm');
 const { findRelevantTasks } = require('./embeddings');
 const { checkRateLimit }    = require('./telegram-rate-limit');
-const { getActiveTasks, getBlockedTaskIds } = require('./tasks');
+const { getActiveTasks, getBlockedTaskIds, taskHasWeekdayOnlyTag } = require('./tasks');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -238,12 +238,16 @@ async function sendOverdueAlerts() {
   const windowStart = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const windowEnd   = new Date().toISOString();
 
+  const dow = new Date().getUTCDay(); // 0=Sun, 6=Sat
+  const isWeekend = dow === 0 || dow === 6;
+
   for (const link of links) {
     try {
       const blockedIds = getBlockedTaskIds();
       const overdue = getActiveTasks(link.user_id)
         .filter(t => t.next_reminder >= windowStart && t.next_reminder <= windowEnd)
-        .filter(t => !blockedIds.has(t.id));
+        .filter(t => !blockedIds.has(t.id))
+        .filter(t => !isWeekend || !taskHasWeekdayOnlyTag(t.id));
       if (overdue.length === 0) continue;
 
       const lines = overdue.map(t => `• [${t.priority}] ${t.title}`).join('\n');

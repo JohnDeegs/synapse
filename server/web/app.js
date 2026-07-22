@@ -14,6 +14,7 @@ let filterDue    = 'all'; // 'all' | 'today' | 'week' | 'month'
 let selectedTaskIds = new Set();
 let countdownTimer = null;
 let autoRefreshTimer = null;
+let pendingPatch = 0; // count of in-flight PATCH requests — suppress auto-refresh while > 0
 let newTaskMDE = null; // EasyMDE instance for the new-task form (lazy-init)
 let newTaskDP  = null; // DatePicker instance for the new-task form (lazy-init)
 let pendingQuickAdd = null; // last parseQuickAdd() result for the new-task title input
@@ -201,13 +202,49 @@ async function generateTelegramCode() {
 }
 
 // ── Task API ───────────────────────────────────────────────────────────────────
+
+function isHourInQuietWindow(start, end, hour) {
+  if (start < end) return hour >= start && hour < end;
+  return hour >= start || hour < end; // midnight-crossing e.g. 17→9
+}
+
+function minsUntilLocalHour(endHour) {
+  const target = new Date();
+  target.setHours(endHour, 0, 0, 0);
+  if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
+  return Math.ceil((target.getTime() - Date.now()) / 60000);
+}
+
 async function fetchTasks() {
+  if (pendingPatch > 0) return; // don't clobber in-flight mutations
   allTasks = await api('GET', '/tasks?status=all');
   // Remove selected IDs that no longer exist in the task list
   const existingIds = new Set(allTasks.map(t => t.id));
   for (const id of [...selectedTaskIds]) {
     if (!existingIds.has(id)) selectedTaskIds.delete(id);
   }
+
+  // Enforce tag quiet hours client-side (browser local time, no timezone needed).
+  // Case 1: currently inside a quiet window → snooze to quiet_end.
+  // Case 2: quiet window has passed but next_reminder was set inside it
+  //         (computer was off, extension missed it) → snooze to quiet_end.
+  const now = Date.now();
+  const currentHour = new Date().getHours();
+  for (const task of allTasks) {
+    if (task.status !== 'active') continue;
+    if (new Date(task.next_reminder).getTime() > now) continue;
+    if (!task.tags || task.tags.length === 0) continue;
+
+    // Currently inside a quiet window — snooze to quiet_end
+    const activeQuietTag = task.tags.find(t =>
+      t.quiet_start !== null && t.quiet_end !== null &&
+      isHourInQuietWindow(t.quiet_start, t.quiet_end, currentHour)
+    );
+    if (activeQuietTag) {
+      patchTask(task.id, { action: 'snooze', minutes: minsUntilLocalHour(activeQuietTag.quiet_end) }).catch(() => {});
+    }
+  }
+
   renderTasks();
   updateStats();
 }
@@ -320,6 +357,7 @@ async function applyQuickAddExtras(task, parsed, manual = { tagIds: new Set(), p
 }
 
 async function patchTask(id, body) {
+  pendingPatch++;
   let freshTask = null;
   try {
     const updated = await api('PATCH', `/tasks/${id}`, body);
@@ -330,9 +368,11 @@ async function patchTask(id, body) {
     if (e.status === 404) {
       allTasks = allTasks.filter(t => t.id !== id);
     } else {
+      pendingPatch--;
       throw e;
     }
   }
+  pendingPatch--;
   renderTasks();
   updateStats();
   if (body.action === 'checkin' || body.action === 'complete') {
@@ -1353,8 +1393,8 @@ function showApp() {
   initQuietHoursUI();
   if (countdownTimer) clearInterval(countdownTimer);
   countdownTimer = setInterval(updateCountdowns, 30_000);
-  // Auto-refresh disabled — was overwriting manual priority changes in the UI
-  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(() => fetchTasks().catch(() => {}), 30_000);
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────

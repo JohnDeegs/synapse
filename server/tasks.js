@@ -197,9 +197,42 @@ function escalateAllDueTasks() {
     if (newPriority === task.priority) continue;
 
     // Recalculate next_reminder with escalated priority, but only bring it forward
-    const candidate = calcNextReminder(newPriority, task.checkin_count);
+    const weekdayOnly = taskHasWeekdayOnlyTag(task.id);
+    const candidate = calcNextReminder(newPriority, task.checkin_count, Date.now(), weekdayOnly);
     const nextReminder = candidate < task.next_reminder ? candidate : task.next_reminder;
     stmts.updateTaskPriority.run({ id: task.id, priority: newPriority, nextReminder });
+    count++;
+  }
+  return count;
+}
+
+
+/**
+ * On weekends, push overdue weekday-only tasks forward to Monday 00:00 UTC
+ * so they don't show as overdue on the web dashboard or fire Telegram alerts.
+ * No-op on weekdays. Returns count of tasks deferred.
+ */
+function deferWeekdayOnlyTasksForWeekend() {
+  const dow = new Date().getUTCDay(); // 0=Sun, 6=Sat
+  if (dow !== 0 && dow !== 6) return 0;
+
+  const mon = new Date();
+  mon.setUTCDate(mon.getUTCDate() + (dow === 0 ? 1 : 2));
+  mon.setUTCHours(0, 0, 0, 0);
+  const nextMonday = mon.toISOString();
+
+  const overdue = stmts.getAllOverdueActiveTasks.all(new Date().toISOString());
+  let count = 0;
+  for (const task of overdue) {
+    if (!taskHasWeekdayOnlyTag(task.id)) continue;
+    stmts.updateTask.run({
+      id: task.id,
+      status: task.status,
+      priority: task.priority,
+      checkinCount: task.checkin_count,
+      nextReminder: nextMonday,
+      priorityLocked: task.priority_locked || 0,
+    });
     count++;
   }
   return count;
@@ -229,6 +262,7 @@ module.exports = {
   calcNextReminder,
   taskHasWeekdayOnlyTag,
   snapshotDailyHealth,
+  deferWeekdayOnlyTasksForWeekend,
   createTask,
   getActiveTasks,
   getTaskById,
