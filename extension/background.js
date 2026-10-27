@@ -1,177 +1,120 @@
-// background.js — Phase 5: alarm-driven notifications
+// background.js — service worker: context menu, "already filed" badge,
+// and address-bar search (keyword "s").
 
-const ALARM_NAME = 'reminderCheck';
+importScripts('api.js');
 
-// Track which task IDs have active notifications to avoid duplicates
-const activeNotifications = {}; // notificationId -> taskId
+// ── Context menu ──────────────────────────────────────────────────────────────
 
-// Create alarm on install and on every service worker startup
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({ id: 'file-page', title: 'File this page in Synapse', contexts: ['page'] });
+    chrome.contextMenus.create({ id: 'file-link', title: 'File link in Synapse', contexts: ['link'] });
+  });
 });
 
-chrome.alarms.get(ALARM_NAME, (alarm) => {
-  if (!alarm) {
-    chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
-  }
+// The popup can't be opened from a menu click, so open it in a small window
+// with the target passed in the query string.
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  const url = info.menuItemId === 'file-link' ? info.linkUrl : (info.pageUrl || tab?.url);
+  const title = info.menuItemId === 'file-link' ? (info.selectionText || '') : (tab?.title || '');
+  if (!url) return;
+  chrome.windows.create({
+    url: `popup.html?${new URLSearchParams({ url, title })}`,
+    type: 'popup',
+    width: 400,
+    height: 560,
+  });
 });
 
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name !== ALARM_NAME) return;
-  checkAndNotify();
-});
+// ── "Already filed" badge ─────────────────────────────────────────────────────
+// Lookups are cached briefly per URL so switching tabs doesn't hit the server
+// every time. The worker can be stopped at any moment, which just empties the cache.
 
-function minsUntilMonday() {
-  const now = new Date();
-  const dow = now.getDay(); // 0=Sun, 6=Sat
-  const daysUntil = dow === 0 ? 1 : 2;
-  const mon = new Date(now);
-  mon.setDate(now.getDate() + daysUntil);
-  mon.setHours(8, 0, 0, 0);
-  return Math.ceil((mon.getTime() - now.getTime()) / 60000);
+const LOOKUP_TTL_MS = 60 * 1000;
+const lookupCache = new Map(); // url -> { filed, at }
+
+async function isFiled(url) {
+  const hit = lookupCache.get(url);
+  if (hit && Date.now() - hit.at < LOOKUP_TTL_MS) return hit.filed;
+  const { item } = await api('GET', `/items/lookup?${new URLSearchParams({ url })}`);
+  lookupCache.set(url, { filed: !!item, at: Date.now() });
+  return !!item;
 }
 
-function isDuringQuietHours(start, end, hour = new Date().getHours()) {
-  if (start < end) return hour >= start && hour < end; // normal window e.g. 9→17
-  return hour >= start || hour < end;                  // midnight-crossing e.g. 23→7
-}
-
-function msUntilQuietEnd(endHour) {
-  const target = new Date();
-  target.setHours(endHour, 0, 0, 0);
-  if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
-  return target.getTime() - Date.now();
-}
-
-async function checkAndNotify() {
-  const { token, apiBase, quietEnabled, quietStart, quietEnd } =
-    await chrome.storage.local.get(['token', 'apiBase', 'quietEnabled', 'quietStart', 'quietEnd']);
-  if (!token || !apiBase) return;
-
-  const qEnabled = quietEnabled !== false;
-  const qStart   = quietStart  !== undefined ? quietStart  : 23;
-  const qEnd     = quietEnd    !== undefined ? quietEnd    : 7;
-  const inQuiet  = qEnabled && isDuringQuietHours(qStart, qEnd);
-
-  let tasks;
+async function updateBadge(tabId, url) {
+  if (!isWebUrl(url)) return chrome.action.setBadgeText({ tabId, text: '' });
   try {
-    const res = await fetch(`${apiBase}/tasks`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (!res.ok) return;
-    tasks = await res.json();
+    const filed = await isFiled(url);
+    await chrome.action.setBadgeText({ tabId, text: filed ? '✓' : '' });
+    if (filed) await chrome.action.setBadgeBackgroundColor({ tabId, color: '#188038' });
   } catch {
-    return;
-  }
-
-  const now = Date.now();
-
-  const isWeekend = [0, 6].includes(new Date().getDay()); // 0=Sun, 6=Sat
-
-  if (inQuiet) {
-    // Freeze timer: snooze overdue tasks forward to quiet-end, staggered 2 min apart
-    const overdue = tasks.filter(t => t.status === 'active' && new Date(t.next_reminder).getTime() <= now);
-    const minsUntilEnd = Math.ceil(msUntilQuietEnd(qEnd) / 60000);
-    for (let i = 0; i < overdue.length; i++) {
-      const task = overdue[i];
-      const isWeekdayOnly = task.tags && task.tags.some(t => t.weekday_only);
-      const snoozeMinutes = (isWeekend && isWeekdayOnly) ? minsUntilMonday() : (minsUntilEnd + i * 2);
-      await fetch(`${apiBase}/tasks/${task.id}`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'snooze', minutes: snoozeMinutes })
-      }).catch(() => {});
-    }
-    return;
-  }
-
-  for (const task of tasks) {
-    const due = new Date(task.next_reminder).getTime();
-    if (due > now) continue;
-
-    // Check per-tag quiet hours — snooze task if any tag is in its quiet window
-    if (task.tags) {
-      const quietTag = task.tags.find(tag =>
-        tag.quiet_start !== null && tag.quiet_end !== null &&
-        isDuringQuietHours(tag.quiet_start, tag.quiet_end)
-      );
-      if (quietTag) {
-        const minsUntilEnd = Math.ceil(msUntilQuietEnd(quietTag.quiet_end) / 60000);
-        await fetch(`${apiBase}/tasks/${task.id}`, {
-          method: 'PATCH',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'snooze', minutes: minsUntilEnd })
-        }).catch(() => {});
-        continue;
-      }
-
-
-      // Weekday-only tag: snooze to Monday if it's the weekend
-      if (isWeekend && task.tags.some(t => t.weekday_only)) {
-        await fetch(`${apiBase}/tasks/${task.id}`, {
-          method: 'PATCH',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'snooze', minutes: minsUntilMonday() })
-        }).catch(() => {});
-        continue;
-      }
-    }
-
-    // Skip if we already have an active notification for this task
-    const alreadyNotified = Object.values(activeNotifications).includes(task.id);
-    if (alreadyNotified) continue;
-
-    const notifId = `task-${task.id}`;
-    activeNotifications[notifId] = task.id;
-
-    chrome.notifications.create(notifId, {
-      type: 'basic',
-      iconUrl: 'icons/icon128.png',
-      title: `[${task.priority}] ${task.title}`,
-      message: task.description || 'Task is due for review.',
-      buttons: [
-        { title: 'Complete' },
-        { title: 'Check-in' },
-        { title: 'Snooze 1hr' }
-      ],
-      requireInteraction: true
-    });
+    // Signed out or server unreachable: no badge.
+    chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
   }
 }
 
-chrome.notifications.onButtonClicked.addListener(async (notifId, buttonIndex) => {
-  const taskId = activeNotifications[notifId];
-  if (!taskId) return;
-
-  const { token, apiBase } = await chrome.storage.local.get(['token', 'apiBase']);
-  if (!token || !apiBase) return;
-
-  let body;
-  if (buttonIndex === 0) {
-    body = { action: 'complete' };
-  } else if (buttonIndex === 1) {
-    body = { action: 'checkin', note: 'Checked in via notification' };
-  } else if (buttonIndex === 2) {
-    body = { action: 'snooze', minutes: 60 };
-  }
-
-  try {
-    await fetch(`${apiBase}/tasks/${taskId}`, {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
-    });
-  } catch {
-    // best-effort; notification still clears
-  }
-
-  chrome.notifications.clear(notifId);
-  delete activeNotifications[notifId];
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (tab) updateBadge(tabId, tab.url);
 });
 
-chrome.notifications.onClosed.addListener((notifId) => {
-  delete activeNotifications[notifId];
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+  if (change.url || change.status === 'complete') updateBadge(tabId, tab.url);
+});
+
+chrome.runtime.onMessage.addListener(async msg => {
+  if (msg?.type !== 'filed') return;
+  lookupCache.delete(msg.url);
+  const tabs = await chrome.tabs.query({ url: msg.url }).catch(() => []);
+  for (const t of tabs) updateBadge(t.id, t.url);
+});
+
+chrome.storage.onChanged.addListener(changes => {
+  if (changes.token || changes.apiBase) lookupCache.clear();
+});
+
+// ── Address-bar search: "s <query>" ───────────────────────────────────────────
+
+chrome.omnibox.setDefaultSuggestion({ description: 'Search Synapse' });
+
+const xmlEsc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
+
+let lastResults = new Map(); // suggestion content (url) -> item id
+let searchTimer = null;
+
+chrome.omnibox.onInputChanged.addListener((text, suggest) => {
+  clearTimeout(searchTimer);
+  const q = text.trim();
+  if (!q) return suggest([]);
+  searchTimer = setTimeout(async () => {
+    try {
+      const { apiBase } = await getConfig();
+      const items = await api('GET', `/items?${new URLSearchParams({ q })}`);
+      lastResults = new Map();
+      const out = [];
+      for (const i of items.slice(0, 8)) {
+        const content = i.type === 'folder' || !isWebUrl(i.url)
+          ? webAppUrl(apiBase, `#/f/${encodeURIComponent(i.type === 'folder' ? i.id : i.parentId)}`)
+          : i.url;
+        if (lastResults.has(content)) continue;
+        lastResults.set(content, i.id);
+        const where = i.type === 'folder' ? 'folder' : (i.note ? i.note.slice(0, 60) : i.url);
+        out.push({ content, description: `<match>${xmlEsc(i.title)}</match> <dim>— ${xmlEsc(where)}</dim>` });
+      }
+      suggest(out);
+    } catch {
+      suggest([]);
+    }
+  }, 150);
+});
+
+chrome.omnibox.onInputEntered.addListener(async (text, disposition) => {
+  const { apiBase } = await getConfig();
+  let url = text;
+  // Typed text without picking a suggestion: open the best match, else the web app.
+  if (!lastResults.has(text)) url = lastResults.keys().next().value || webAppUrl(apiBase);
+  const id = lastResults.get(url);
+  if (id) api('POST', `/items/${encodeURIComponent(id)}/touch`).catch(() => {});
+  if (disposition === 'currentTab') chrome.tabs.update({ url });
+  else chrome.tabs.create({ url, active: disposition === 'newForegroundTab' });
 });

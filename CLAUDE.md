@@ -75,7 +75,20 @@ Served at `/web/`. Vanilla JS in `app.js`, no dependencies. Loads all items once
 
 ### Chrome extension (`extension/`)
 
-Being rebuilt for the PARA model (plan phase 3). The current files still target the old task API and do not work against the new server.
+Load unpacked from `chrome://extensions` (Developer Mode). Sign in from the options page with the backend URL (e.g. `http://localhost:3000`).
+
+```
+extension/
+  api.js         # shared: getConfig(), api(), cleanTitle(), webAppUrl(); <script> in pages, importScripts() in the worker
+  popup.html/js  # "file this tab": lookup → already-filed view, or form with folder picker + suggestions
+  background.js  # context menu, ✓ badge on filed tabs, omnibox search (keyword "s")
+  options.html/js
+```
+- `chrome.storage.local` holds `{ token, apiBase, email }`. Both `token` and `apiBase` must be present for any API call.
+- Popup opens with Alt+S (`_execute_action`). Enter in the note saves, Enter in the folder search jumps to the note.
+- Context-menu filing can't open the popup, so it opens `popup.html?url=&title=` in a small window; `popup.js` prefers those params over the active tab.
+- The badge lookup cache lives in worker memory and is lost when the worker stops; that only costs an extra `/items/lookup` call.
+- After filing, the popup sends `{ type: 'filed', url }` so the worker refreshes the badge.
 
 ---
 

@@ -112,17 +112,11 @@
       transition: background 0.15s;
     }
     button.secondary:hover { background: rgba(248,113,113,0.1); }
-    input[type="checkbox"] { width: auto; accent-color: #6b5bf5; }
-    select {
-      width: 100%;
-      padding: 9px 12px;
-      background: #12121a;
-      border: 1px solid #2a2a3a;
-      border-radius: 7px;
-      color: #e0e0e8;
-      font-size: 0.95rem;
-      outline: none;
-    }
+    #open-web { color: #c4b8ff; }
+    .help h2 { font-size: 1rem; font-weight: 600; color: #c4b8ff; margin-bottom: 10px; }
+    .help ul { padding-left: 18px; color: #aaa; font-size: 0.88rem; line-height: 1.7; }
+    .help p { color: #888; font-size: 0.82rem; margin-top: 10px; }
+    .help code { color: #c4b8ff; }
   </style>
 </head>
 <body>
@@ -132,6 +126,7 @@
     <div id="logged-in-section">
       <p>Logged in as</p>
       <div id="logged-in-email"></div>
+      <p><a id="open-web" target="_blank">Open the web app</a></p>
       <button class="secondary" id="logout-btn">Log out</button>
     </div>
 
@@ -143,7 +138,7 @@
 
       <div class="tab-panel active" id="tab-login">
         <label for="login-api">Backend URL</label>
-        <input type="url" id="login-api" placeholder="https://synapse-production-3ae7.up.railway.app" />
+        <input type="url" id="login-api" placeholder="http://localhost:3000" />
 
         <label for="login-email">Email</label>
         <input type="email" id="login-email" placeholder="you@example.com" />
@@ -157,7 +152,7 @@
 
       <div class="tab-panel" id="tab-register">
         <label for="reg-api">Backend URL</label>
-        <input type="url" id="reg-api" placeholder="https://synapse-production-3ae7.up.railway.app" />
+        <input type="url" id="reg-api" placeholder="http://localhost:3000" />
 
         <label for="reg-email">Email</label>
         <input type="email" id="reg-email" placeholder="you@example.com" />
@@ -171,23 +166,15 @@
     </div>
 
     <hr style="border:none;border-top:1px solid #2a2a3a;margin:28px 0 20px;">
-    <section id="quiet-hours-section">
-      <h2 style="font-size:1rem;font-weight:600;color:#c4b8ff;margin-bottom:10px;">Quiet Hours</h2>
-      <p style="font-size:0.82rem;color:#888;margin-bottom:14px;">
-        During quiet hours the check-in timer pauses — tasks due overnight are rescheduled to fire at wake-up time.
-      </p>
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:0;">
-        <input type="checkbox" id="quiet-enabled" />
-        Enable quiet hours
-      </label>
-      <div id="quiet-range">
-        <label for="quiet-start">From</label>
-        <select id="quiet-start"></select>
-        <label for="quiet-end">Until</label>
-        <select id="quiet-end"></select>
-      </div>
-      <button class="primary" id="quiet-save-btn" data-label="Save">Save</button>
-      <div class="msg" id="quiet-msg"></div>
+    <section class="help">
+      <h2>Using Synapse</h2>
+      <ul>
+        <li><b>Alt+S</b> or the toolbar icon files the current tab.</li>
+        <li>Right-click a page or link → <b>File in Synapse</b>.</li>
+        <li>Type <b>s</b>, a space, then a search in the address bar to find and open filed links.</li>
+        <li>A green ✓ on the icon means the page you're on is already filed.</li>
+      </ul>
+      <p>Change the shortcut at <code>chrome://extensions/shortcuts</code>.</p>
     </section>
   </div>
 
