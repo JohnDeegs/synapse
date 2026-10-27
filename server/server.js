@@ -197,6 +197,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET'  && url === '/items')        return await handleListItems(req, res, u, qs);
     if (req.method === 'POST' && url === '/items')        return send(res, 201, await items.createItem(u.userId, await readBody(req)));
     if (req.method === 'GET'  && url === '/items/lookup') return await handleLookup(req, res, u, qs);
+    if (req.method === 'GET'  && url === '/items/suggest') return send(res, 200, await items.suggestFolders(u.userId, { url: qs.get('url'), title: qs.get('title') }));
     if (req.method === 'GET'  && url === '/tags')         return send(res, 200, await items.listTags(u.userId));
 
     const touchMatch = url.match(/^\/items\/([\w-]+)\/touch$/);

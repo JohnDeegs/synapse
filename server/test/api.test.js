@@ -111,6 +111,22 @@ test('lookup finds a filed URL with its breadcrumb', async () => {
   assert.equal(miss.body.item, null);
 });
 
+test('suggest ranks folders by same place, recency and matching words', async () => {
+  const other = await api('POST', '/items', { type: 'folder', parentId: 'root-areas', title: 'Hiring', note: 'Interview loops and offers' });
+
+  // A new doc from the same SharePoint site lands on Board Pack
+  const site = await api('GET', '/items/suggest?url=' + encodeURIComponent('https://contoso.sharepoint.com/sites/Finance/Shared%20Documents/Q4.xlsx') + '&title=Q4%20forecast');
+  assert.equal(site.body[0].breadcrumb.join(' / '), 'Projects / Board Pack');
+  assert.ok(site.body[0].reasons.includes('same place'));
+
+  // Title words beat recency when nothing else matches
+  const words = await api('GET', '/items/suggest?url=' + encodeURIComponent('https://example.org/x') + '&title=Interview%20scorecard');
+  assert.equal(words.body[0].folderId, other.body.id);
+  assert.ok(words.body[0].reasons.includes('matching words'));
+
+  await api('DELETE', `/items/${other.body.id}`);
+});
+
 test('search and filters', async () => {
   const q = await api('GET', '/items?q=sign-off');
   assert.deepEqual(q.body.map(i => i.title), ['Budget sheet']);

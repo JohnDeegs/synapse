@@ -301,6 +301,66 @@ async function lookupUrl(userId, url) {
   return item ? { item, breadcrumb: breadcrumb(items, item) } : null;
 }
 
+const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'from', 'this', 'that', 'your', 'docs', 'google', 'word', 'excel', 'sheets', 'slides', 'sharepoint', 'document', 'copy', 'draft', 'final', 'untitled']);
+const words = s => (s || '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !STOPWORDS.has(w));
+
+/**
+ * Rank folders where a new link probably belongs, using only filed data:
+ *   - same place: folders already holding links from the same SharePoint site or web host
+ *   - recent: folders the most recent links were filed into
+ *   - words: title words that appear in a folder's title or note
+ * Archived folders are skipped. Returns up to 5 { folderId, breadcrumb, score, reasons }.
+ */
+async function suggestFolders(userId, { url, title }) {
+  await ensureRoots(userId);
+  const items = await store.listItems(userId);
+  const byId = new Map(items.map(i => [i.id, i]));
+  let site = null;
+  if (url) { try { site = parseLink(url).site; } catch { /* unparseable: skip site signal */ } }
+
+  const scores = new Map(); // folderId -> { score, reasons:Set }
+  const add = (folderId, score, reason) => {
+    const f = byId.get(folderId);
+    if (!f || f.type !== 'folder' || f.para === 'archive') return;
+    const s = scores.get(folderId) || { score: 0, reasons: new Set() };
+    s.score += score;
+    s.reasons.add(reason);
+    scores.set(folderId, s);
+  };
+
+  const now = Date.now();
+  const links = items.filter(i => i.type === 'link');
+  if (site) {
+    for (const l of links) {
+      if (l.site !== site) continue;
+      const days = (now - Date.parse(l.lastTouched)) / 86400000;
+      add(l.parentId, 3 / (1 + days / 30), 'same place');
+    }
+  }
+
+  // Recency is a tiebreaker: each of the last few distinct folders once, below a word match.
+  const recentFolders = [...new Set([...links].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(l => l.parentId))].slice(0, 3);
+  recentFolders.forEach((id, i) => add(id, 0.75 - i * 0.2, 'recent'));
+
+  const titleWords = new Set(words(title));
+  if (titleWords.size) {
+    for (const f of items) {
+      if (f.type !== 'folder' || f.parentId === null) continue;
+      const inTitle = words(f.title).filter(w => titleWords.has(w)).length;
+      const inNote = words(f.note).filter(w => titleWords.has(w)).length;
+      if (inTitle || inNote) add(f.id, inTitle * 2 + inNote, 'matching words');
+    }
+  }
+
+  return [...scores]
+    .sort((a, b) => b[1].score - a[1].score)
+    .slice(0, 5)
+    .map(([folderId, s]) => {
+      const f = byId.get(folderId);
+      return { folderId, breadcrumb: [...breadcrumb(items, f), f.title], score: Math.round(s.score * 100) / 100, reasons: [...s.reasons] };
+    });
+}
+
 /** Every tag in use, with how many items carry it. */
 async function listTags(userId) {
   const counts = new Map();
@@ -312,5 +372,5 @@ async function listTags(userId) {
 
 module.exports = {
   HttpError, PARA_ROOTS, rootId, parseLink,
-  listItems, getItem, createItem, updateItem, deleteItem, touchItem, lookupUrl, listTags,
+  listItems, getItem, createItem, updateItem, deleteItem, touchItem, lookupUrl, suggestFolders, listTags,
 };
