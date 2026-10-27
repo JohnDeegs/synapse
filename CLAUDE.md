@@ -62,7 +62,17 @@ An item is a folder or a link: `{ id, type, parentId, path, para, title, note, p
 | `POST /items/:id/touch` | Mark as opened (updates `lastTouched`) |
 | `GET /items/lookup?url=` | `{ item, breadcrumb }` if the URL is filed |
 | `GET /items/suggest?url=&title=` | Up to 5 `{ folderId, breadcrumb, score, reasons }`: same site, recent folders, matching words |
+| `POST /items/embeddings` | Batch-store client-computed vectors `{ model, vectors: { id: base64 } }` (not a touch) |
 | `GET /tags` | Tags in use with counts |
+
+### On-device AI (`synapse-ai.js`)
+
+- `server/web/synapse-ai.js` is canonical; `extension/synapse-ai.js` must be an identical copy (`server/test/ai.test.js` fails otherwise). After editing, run `cp server/web/synapse-ai.js extension/synapse-ai.js`.
+- Model: potion-base-4M static embeddings (mean of word-piece vectors, BERT uncased tokenizer), pinned to one Hugging Face revision. Files are hash-verified before going into the Cache API. Changing the revision means updating `REVISION`, `FILES` hashes and sizes; `MODEL_ID` changes with it, so every client re-embeds.
+- Vectors are computed only on clients and stored on items as `embedding: { model, v }` (int8, base64). The server never computes them. It clears `embedding` whenever title, note, tags or url change, and clients backfill anything `SynapseAI.missing()` returns.
+- A folder's "fingerprint" is the sum of its own vector and its direct child links' vectors. Similarity thresholds are the constants at the top of `synapse-ai.js`.
+- Web app: toggle in sidebar (`localStorage.synapse_ai`), skipped on data saver. Extension: `aiEnabled` in `chrome.storage.local` (default on); the popup blends similarity into server suggestions (`AI_WEIGHT`, `AI_FLOOR` in `popup.js`) and backfills missing vectors.
+- AI is always optional: every feature must work, minus suggestions, when the model fails to load.
 
 ### Web app (`server/web/`)
 

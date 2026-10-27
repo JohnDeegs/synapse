@@ -1,131 +1,97 @@
 # Synapse
 
-A contextual reminder app using Spaced Repetition (SRS) to fight notification blindness.
+A personal PARA organiser for links. Keep one folder tree (Projects, Areas, Resources, Archive) whose entries point to wherever your work actually lives: Google Docs, SharePoint files, any web page or a local file path. Each link carries a short note on why it matters, plus optional priority, deadline and tags.
 
-**Stack:** Chrome Extension (MV3) + vanilla Node.js backend + SQLite, deployed on Railway.
-**V2 features:** Web dashboard · Telegram bot (Gemini 2.5 Flash + RAG) · Tags · Daily briefings.
+Synapse never stores document content and never sends you alerts. It's a map, not an inbox.
 
-See `plan.md` for the full PRD and `tasksV2.md` for the V2 build task list.
+**Stack:** vanilla Node.js server (no framework, no build step) · Firestore in production, a JSON file locally · web app (installable on Android) · Chrome extension (MV3) · on-device AI with a 15 MB static embedding model.
 
 ---
 
 ## Features
 
-- **SRS reminders** — P0–P4 priorities with capped linear interval growth; intervals widen on each check-in
-- **Chrome Extension** — quick-capture popup + OS notifications with Complete / Check-in / Snooze buttons
-- **Web dashboard** — full CRUD, inline editing, tags, markdown rendering, dark mode, live countdown timers, check-in history, bulk actions, stats bar
-- **Telegram bot** — natural language task management via Gemini 2.5 Flash + vector RAG; daily 7 am briefing
-- **Due-date escalation** — tasks with approaching due dates automatically bump priority
+- **Folder tree that spans every tool.** A Google Doc, a SharePoint Word file and a local PDF can sit side by side in one project folder. Archiving a project moves the whole folder under Archive.
+- **"Why this matters" notes** on every link, so you can find things by what they're for, not just by name.
+- **Search** across titles, notes, tags and URLs, with filters by PARA area, tag and priority.
+- **Due-soon strip and "last touched"** indicators instead of reminders. Nothing piles up while you're away.
+- **Weekly review** page: projects and areas ordered by how stale they are, with one-click "still active" or "archive".
+- **Chrome extension:**
+  - **Alt+S** files the current tab, with the title cleaned up and a folder suggested
+  - **Right-click** any page or link → *File in Synapse*
+  - a green **✓** on pages you've already filed
+  - **`s` + search** in the address bar opens filed links directly
+- **Android:** install the web app, then share from the Google Docs or SharePoint apps straight into a folder.
+- **On-device AI** (optional, on by default):
+  - folder and tag suggestions
+  - "related by meaning" search results
+  - tidy-up hints (misfiled links, likely duplicates)
+
+  It runs entirely in your browser. See [On-device AI](#on-device-ai).
 
 ---
 
-## Local Setup
+## Local setup
 
-### Backend
+### Server
 ```bash
 cd server
-cp .env.example .env   # edit .env — set JWT_SECRET at minimum
 npm install
-node server.js
-# Server runs on http://localhost:3000
-# Web dashboard: http://localhost:3000/web
+JWT_SECRET=change-me node server.js     # or put JWT_SECRET in server/.env
+# http://localhost:3000/web
+npm test                                # API + AI unit tests
 ```
+Locally, data lives in `server/synapse-data.json` (gitignored).
 
-### Extension
-1. Open `chrome://extensions`
-2. Enable Developer Mode
-3. Click **Load unpacked** → select the `extension/` folder
-4. Click the extension icon → **Options**
-5. Enter `http://localhost:3000` as the API base URL
-6. Register an account and start adding tasks
+### Chrome extension
+1. Open `chrome://extensions` and turn on **Developer mode**.
+2. Click **Load unpacked** and select the `extension/` folder.
+3. Open the extension's **Options**, enter `http://localhost:3000` as the backend URL, and sign in or register.
+
+### Android
+Open the web app in Chrome on your phone, sign in, then use the menu → **Install app**. Synapse then appears in the share sheet. This needs the server on HTTPS, so it only works once deployed.
 
 ---
 
-## Environment Variables
+## Environment variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `JWT_SECRET` | Yes | Random secret for signing tokens |
-| `DATA_FILE` | Yes (prod) | Path to SQLite file (e.g. `/data/synapse.db`) |
-| `PORT` | Railway only | Injected automatically — **do not set manually** |
-| `TELEGRAM_BOT_TOKEN` | Optional | BotFather token — enables Telegram bot |
-| `APP_BASE_URL` | Optional | Public HTTPS URL — required for Telegram webhook registration |
-| `GEMINI_API_KEY` | Optional | Google AI Studio key — required for LLM features |
-| `BRIEFING_HOUR` | Optional | Hour (0–23) for daily briefing, default `7` |
+| `JWT_SECRET` | Yes | Random secret for signing login tokens |
+| `PORT` | No | Default `3000`. Cloud Run sets it automatically |
+| `STORE` | Production | `firestore` to use Firestore; anything else uses the JSON file |
+| `DATA_FILE` | No | JSON store path, default `./synapse-data.json` |
+| `TRUST_PROXY` | Production | `1` behind Cloud Run, so the login rate limiter sees real client IPs |
 
 ---
 
-## Deployment (Railway)
+## On-device AI
 
-### 1. Create the Railway project
-1. Go to [railway.app](https://railway.app) and create a new project
-2. Choose **Deploy from GitHub repo** → select this repository
-3. Set the **Root Directory** to `server`
-
-### 2. Add a persistent volume
-1. In your Railway service, click **Add Volume**
-2. Set the mount path to `/data`
-
-### 3. Set environment variables
-In Railway → **Variables**, add at minimum:
-
-| Variable | Value |
-|----------|-------|
-| `DATA_FILE` | `/data/synapse.db` |
-| `JWT_SECRET` | any long random string |
-
-Add `TELEGRAM_BOT_TOKEN`, `APP_BASE_URL`, and `GEMINI_API_KEY` to enable the Telegram bot.
-
-> Do **not** set `PORT` — Railway injects it automatically.
-
-### 4. Generate a domain and deploy
-1. Go to **Settings → Networking** → **Generate Domain**
-2. Check your **Deploy Logs** for `Synapse server listening on port XXXX` and enter that port
-3. Railway auto-deploys on push to `main`
-
-> **Tip:** `GET /tasks` should return `401` when the server is up. The root URL (`/`) returns 404 — expected, there is no index route.
-
-### 5. Point the extension at production
-1. Open the extension Options page
-2. Replace `http://localhost:3000` with your Railway URL
-3. Register/login against the production backend
-
-### 6. Verify
-```bash
-curl -X POST https://<your-railway-url>/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"you@example.com","password":"secret"}'
-# Expected: { "token": "eyJ..." }
-```
+- **Model:** [minishlab/potion-base-4M](https://huggingface.co/minishlab/potion-base-4M) (MIT), a "static embedding" model. A text's meaning is the average of its word pieces' vectors, so it's a table lookup with no neural network or WebAssembly. It's implemented in plain JS in `server/web/synapse-ai.js`, and `extension/synapse-ai.js` is an identical copy (a test enforces this).
+- **Download:** about 15 MB, once per browser, from a pinned revision. Files are checked against Hugging Face's published hashes before use and kept in the browser cache. A file that doesn't match is rejected and the AI stays off.
+- **Privacy:** your titles and notes are turned into vectors in your browser. The vectors (128 small numbers per item) are stored with your items so every device can use them. Nothing is sent to an AI service.
+- **Switching it off:** the toggle in the web app sidebar, or in the extension options. Everything else works the same without it.
 
 ---
 
-## Telegram Bot Setup
+## API
 
-1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token
-2. Add `TELEGRAM_BOT_TOKEN` and `APP_BASE_URL` to Railway env vars — the webhook registers automatically on startup
-3. Add `GEMINI_API_KEY` for LLM-powered natural language commands
-4. In the web dashboard, go to **Settings → Telegram** and generate a one-time code
-5. Send `/connect <code>` to your bot in Telegram
+All routes except auth and `/web/*` need `Authorization: Bearer <token>`.
 
-The bot supports natural language: *"What's due today?"*, *"Remind me to review the contract, it's critical"*, *"Mark the budget report done"*, etc.
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/auth/register`, `/auth/login` | Returns `{ token }` |
+| `GET` | `/items` | All items; filters `q, type, para, under, tag, priority, dueBefore` |
+| `POST` | `/items` | Create a folder or link |
+| `GET/PATCH/DELETE` | `/items/:id` | PATCH with `parentId` moves; DELETE removes the subtree |
+| `POST` | `/items/:id/touch` | Mark as opened |
+| `GET` | `/items/lookup?url=` | Where a URL is filed, if anywhere |
+| `GET` | `/items/suggest?url=&title=` | Rule-based folder suggestions |
+| `POST` | `/items/embeddings` | Store client-computed vectors `{ model, vectors: { id: base64 } }` |
+| `GET` | `/tags` | Tags in use with counts |
+| `GET` | `/web/*` | Web app |
 
 ---
 
-## API Reference
+## Deployment
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `POST` | `/auth/register` | — | Create account, return JWT |
-| `POST` | `/auth/login` | — | Verify credentials, return JWT |
-| `GET` | `/tasks` | Bearer | List active tasks (includes tags) |
-| `POST` | `/tasks` | Bearer | Create a task |
-| `PATCH` | `/tasks/:id` | Bearer | Check-in, complete, or snooze |
-| `DELETE` | `/tasks/:id` | Bearer | Delete a task |
-| `GET` | `/tags` | Bearer | List all tags for user |
-| `POST` | `/tags` | Bearer | Create a tag |
-| `GET/POST/DELETE` | `/tasks/:id/tags` | Bearer | Manage tags on a task |
-| `POST` | `/auth/telegram-code` | Bearer | Generate one-time Telegram link code |
-| `GET/DELETE` | `/telegram/connect` | Bearer | Check / unlink Telegram connection |
-| `POST` | `/telegram/webhook` | Secret | Telegram webhook receiver |
-| `GET` | `/web/*` | — | Web dashboard static files |
+Planned: Cloud Run + Firestore in `europe-west1` (EU), with secrets in Secret Manager and `max-instances=1`. The server caches each user's items in memory, which is only correct with a single instance. Not deployed yet.
