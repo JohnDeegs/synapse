@@ -127,6 +127,29 @@ test('suggest ranks folders by same place, recency and matching words', async ()
   await api('DELETE', `/items/${other.body.id}`);
 });
 
+test('embeddings: stored on create and in batch, cleared when text changes', async () => {
+  const emb = { model: 'test@1', v: 'AQID' };
+  const link = await api('POST', '/items', { type: 'link', parentId: 'root-resources', url: 'https://example.com/emb', embedding: emb });
+  assert.deepEqual(link.body.embedding, emb);
+
+  const bad = await api('POST', '/items', { type: 'link', parentId: 'root-resources', url: 'https://example.com/emb2', embedding: { model: 'x', v: '<script>' } });
+  assert.equal(bad.status, 400);
+
+  // Moving keeps the vector; editing the text clears it
+  const moved = await api('PATCH', `/items/${link.body.id}`, { parentId: 'root-areas' });
+  assert.deepEqual(moved.body.embedding, emb);
+  const edited = await api('PATCH', `/items/${link.body.id}`, { note: 'new words' });
+  assert.equal(edited.body.embedding, null);
+
+  const batch = await api('POST', '/items/embeddings', { model: 'test@2', vectors: { [link.body.id]: 'BAUG', 'root-projects': 'AQID', nope: 'AQID' } });
+  assert.equal(batch.body.updated, 1);
+  const after = await api('GET', `/items/${link.body.id}`);
+  assert.deepEqual(after.body.embedding, { model: 'test@2', v: 'BAUG' });
+  assert.equal(after.body.lastTouched, edited.body.lastTouched, 'storing a vector is not a touch');
+
+  await api('DELETE', `/items/${link.body.id}`);
+});
+
 test('search and filters', async () => {
   const q = await api('GET', '/items?q=sign-off');
   assert.deepEqual(q.body.map(i => i.title), ['Budget sheet']);

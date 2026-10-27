@@ -109,6 +109,21 @@ function isValidDate(s) {
   return !isNaN(d) && d.toISOString().slice(0, 10) === s;
 }
 
+/**
+ * On-device embedding computed by a client (see web/synapse-ai.js):
+ * { model, v } where v is a base64 int8 vector. The server only stores it.
+ */
+function cleanEmbedding(e) {
+  if (e === null) return null;
+  if (!e || typeof e.model !== 'string' || !e.model || e.model.length > 100 ||
+      typeof e.v !== 'string' || e.v.length > 4096 || !/^[A-Za-z0-9+/]+={0,2}$/.test(e.v)) {
+    throw new HttpError(400, 'embedding must be { model, v } with v a base64 string');
+  }
+  return { model: e.model, v: e.v };
+}
+
+const EMBEDDED_FIELDS = ['title', 'note', 'tags', 'url'];
+
 /** Copy editable fields from a request body onto an item, validating each. */
 function applyFields(item, body) {
   if (body.title !== undefined) {
@@ -130,6 +145,9 @@ function applyFields(item, body) {
     item.dueDate = body.dueDate;
   }
   if (body.tags !== undefined) item.tags = cleanTags(body.tags);
+  // Text changed: the stored vector is stale unless the client sent a fresh one.
+  if (EMBEDDED_FIELDS.some(k => body[k] !== undefined)) item.embedding = null;
+  if (body.embedding !== undefined) item.embedding = cleanEmbedding(body.embedding);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -217,7 +235,7 @@ async function createItem(userId, body) {
   const item = {
     id: store.newId(), type: body.type, parentId: parent.id,
     path: [...parent.path, parent.id], para: parent.para,
-    title: '', note: '', priority: null, dueDate: null, tags: [],
+    title: '', note: '', priority: null, dueDate: null, tags: [], embedding: null,
     createdAt: now, updatedAt: now, lastTouched: now,
   };
 
@@ -282,6 +300,26 @@ async function deleteItem(userId, id) {
   const ids = [item.id, ...(await store.listItems(userId)).filter(i => i.path.includes(item.id)).map(i => i.id)];
   await store.writeItems(userId, [], ids);
   return ids.length;
+}
+
+/**
+ * Store client-computed embeddings for many items in one write:
+ * { model, vectors: { itemId: base64 } }. Unknown ids and roots are skipped.
+ * Doesn't count as touching the items.
+ */
+async function setEmbeddings(userId, body) {
+  if (!body || typeof body.vectors !== 'object' || body.vectors === null) throw new HttpError(400, 'vectors required');
+  const ids = Object.keys(body.vectors);
+  if (ids.length > 500) throw new HttpError(400, 'too many vectors (max 500 per request)');
+  const puts = [];
+  for (const id of ids) {
+    const item = await store.getItem(userId, id);
+    if (!item || item.parentId === null) continue;
+    item.embedding = cleanEmbedding({ model: body.model, v: body.vectors[id] });
+    puts.push(item);
+  }
+  if (puts.length) await store.writeItems(userId, puts);
+  return puts.length;
 }
 
 /** Record that an item was opened, without changing it. */
@@ -372,5 +410,5 @@ async function listTags(userId) {
 
 module.exports = {
   HttpError, PARA_ROOTS, rootId, parseLink,
-  listItems, getItem, createItem, updateItem, deleteItem, touchItem, lookupUrl, suggestFolders, listTags,
+  listItems, getItem, createItem, updateItem, deleteItem, touchItem, setEmbeddings, lookupUrl, suggestFolders, listTags,
 };
