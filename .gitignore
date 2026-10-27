@@ -6,6 +6,9 @@ node_modules/
 *.db-shm
 *.db-wal
 
+# Legacy task exports (personal data)
+legacy-tasks-export*.md
+
 # Environment files
 .env
 server/.env
