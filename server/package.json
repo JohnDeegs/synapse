@@ -1,16 +1,19 @@
 {
   "name": "synapse-server",
-  "version": "1.0.0",
-  "description": "Synapse backend — vanilla Node.js + SQLite",
+  "version": "2.0.0",
+  "description": "Synapse backend — vanilla Node.js + Firestore",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
+    "@google-cloud/firestore": "^7.11.0",
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^9.4.3",
     "dotenv": "^16.4.5",
     "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^9.4.3"
   }
 }

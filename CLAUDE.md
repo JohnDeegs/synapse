@@ -4,140 +4,74 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Synapse** — a contextual reminder app using Spaced Repetition (SRS) to fight notification blindness. See `plan.md` for the full PRD. V2 feature scope (web dashboard + Telegram/LLM bot) is in `plan.md` §9 and broken into phases in `tasksV2.md`.
+**Synapse** — a personal PARA organiser for links. You keep one virtual folder tree (Projects, Areas, Resources, Archive) whose leaves are links to wherever work actually lives: Google Docs, SharePoint files, other URLs or local file paths. Each link carries a "why this matters" note, plus optional priority, deadline and tags. The app never stores document content and has no reminder engine.
 
-**v1.0 scope:** Chrome Extension (MV3) + vanilla Node.js backend on Railway. No Android, no build step.
+The app was rescoped in Oct 2026 from an SRS reminder app. The plan lives in `C:\Users\johnd\.claude\plans\binary-jingling-church.md`. Legacy tasks are not migrated; `server/scripts/export-legacy-tasks.js` dumps them from an old SQLite file to Markdown for review.
 
 ---
 
 ## Stack & Constraints
 
 - **No build step, no TypeScript, no framework.** All code must run as-is (unpacked extension, raw `node server.js`).
-- **Chrome Extension:** Manifest V3, vanilla JS. Key APIs: `chrome.alarms`, `chrome.notifications`, `chrome.storage.local`.
-- **Backend:** `http.createServer` (no Express), SQLite via `better-sqlite3`, Railway deployment.
-- **Auth:** JWT (`jsonwebtoken` + `bcryptjs`), passed as `Authorization: Bearer <token>` header. Tokens expire in 30 days. Multi-user.
+- **Backend:** `http.createServer` (no Express). Firestore in production, a JSON file locally. Deployed to Cloud Run in an EU region.
+- **Auth:** JWT (`jsonwebtoken` + `bcryptjs`), passed as `Authorization: Bearer <token>` header. Tokens expire in 14 days. Multi-user capable, single-user in practice.
+- **EU hosting is a requirement.** Every GCP resource (Cloud Run, Firestore, buckets) must be in an EU region.
 
 ---
 
 ## Running Locally
 
-**Backend:**
 ```bash
 cd server
-cp .env.example .env   # edit JWT_SECRET at minimum
 npm install
-node server.js
+JWT_SECRET=dev node server.js   # or put JWT_SECRET in server/.env
+npm test                         # node:test API suite against a temp JSON store
 ```
-Reads `PORT`, `DATA_FILE`, `JWT_SECRET` from `.env` (defaults: port 3000, `./synapse.db`).
-
-**Extension:**
-1. Open `chrome://extensions`
-2. Enable Developer Mode
-3. Load Unpacked → select the `extension/` folder
-
-The web dashboard is served by the backend at `http://localhost:3000/web`.
+Env: `PORT` (default 3000), `JWT_SECRET` (required), `STORE` (`firestore` in production, otherwise the JSON file store), `DATA_FILE` (JSON store path, default `./synapse-data.json`), `TRUST_PROXY=1` (only behind Cloud Run, for client IPs in the auth rate limiter).
 
 ---
 
 ## Architecture
 
-### Backend coding patterns
+### Backend (`server/`)
 
-All DB access flows through prepared statements defined in `db.js` and imported via `const { stmts } = require('./db')`. **Never write inline SQL in other files** — add a new prepared statement to `stmts` in `db.js` instead.
+- `store.js` — **the only module that touches persistence.** Never call Firestore or read the data file anywhere else; add a function to `store.js` instead. Each user's items are cached in memory and written through, which is only correct with a single server instance (Cloud Run `max-instances=1`).
+- `items.js` — folder/link rules: PARA root seeding, validation, URL parsing (`parseLink`), moves, search, tags. Throws `HttpError(status, message, extra)`, which `server.js` turns into JSON responses.
+- `auth.js` — bcrypt/JWT wrappers with no side effects.
+- `server.js` — manual URL matching, no router. Everything after the auth and static routes requires a valid JWT.
 
-**Adding columns to existing tables:** Do NOT modify the `CREATE TABLE IF NOT EXISTS` block. Add an `ALTER TABLE` to the idempotent migration loop near line 101 of `db.js`:
-```js
-'ALTER TABLE tags ADD COLUMN my_col INTEGER DEFAULT 0',
-```
-The loop catches `duplicate column name` errors so it's safe to run on every startup.
+### Data model
 
-`server.js` does manual URL matching — no router library. Pattern for adding a route:
-```js
-if (req.method === 'GET' && url === '/new-path') {
-  const u = authenticate(req);  // returns decoded JWT payload { userId, email } or null
-  if (!u) return send(res, 401, { error: 'Unauthorized' });
-  return await handleNewRoute(req, res, u);
-}
-```
-`send(res, status, body)` handles all JSON responses. `readBody(req)` parses request JSON.
+Firestore: `users/{id}` (id = sha256 of lowercased email, so duplicate registration is atomic) and `users/{id}/items/{itemId}`.
 
-`tasks.js` owns the SRS formula and all task mutation helpers. `auth.js` wraps bcrypt/JWT with no side effects.
+An item is a folder or a link: `{ id, type, parentId, path, para, title, note, priority, dueDate, tags, createdAt, updatedAt, lastTouched }`, plus `url, kind, urlKey, site` on links.
+- The four PARA roots have fixed ids `root-projects`, `root-areas`, `root-resources` and `root-archive`, are created on first access, and cannot be edited or deleted.
+- `path` is the list of ancestor ids from root to parent; `para` is the root the item sits under. Moving a folder rewrites both on all descendants.
+- Every item has exactly one parent. Cross-cutting grouping uses tags.
+- `urlKey` is the normalised identity of a link (Google doc id, SharePoint `sourcedoc`, etc.). One link per `urlKey` per user; duplicates get a 409 with the existing item.
+- `site` groups links from the same place (SharePoint site, web host) for folder suggestions.
 
-SQLite runs in WAL mode. Schema is created via `CREATE TABLE IF NOT EXISTS` on every startup — no migration files.
+### API
 
-### Scheduled jobs (server.js)
+| Route | Purpose |
+|---|---|
+| `POST /auth/register`, `POST /auth/login` | Returns `{ token }` |
+| `GET /items` | All items; filters `q, type, para, under, tag, priority, dueBefore` |
+| `POST /items` | Create `{ type, parentId, title, url?, note?, priority?, dueDate?, tags? }` |
+| `GET/PATCH/DELETE /items/:id` | PATCH with `parentId` moves; DELETE removes the subtree |
+| `POST /items/:id/touch` | Mark as opened (updates `lastTouched`) |
+| `GET /items/lookup?url=` | `{ item, breadcrumb }` if the URL is filed |
+| `GET /tags` | Tags in use with counts |
 
-Three jobs run on the server:
-- **Daily briefing** — fires at `BRIEFING_HOUR` UTC (default 7). Escalates due-date tasks first, then sends a Telegram summary to connected users.
-- **Overdue alerts** — every 5 minutes, sends Telegram messages for any overdue active tasks.
-- **Hourly escalation** — escalates priority for tasks approaching their `due_date` and snapshots daily health for all users.
+### Web app (`server/web/`) and Chrome extension (`extension/`)
 
-### Due-date escalation (tasks.js)
-
-When a task has a `due_date`, `escalateTaskPriority()` auto-raises priority:
-- overdue → P0, within 24 h → at most P1, within 5 days → at most P2.
-It only moves `next_reminder` forward, never back.
-
-### Tags
-
-Tags are per-user labels stored in `tags` with a many-to-many join `task_tags`. Each tag has three optional constraints on when its tasks fire:
-- `weekday_only` (0/1) — skips weekends when calculating `next_reminder` (via `skipWeekendMinutes` in `tasks.js`).
-- `quiet_start` / `quiet_end` (0–23, nullable) — per-tag quiet hours. The extension snoozes overdue tasks to `quiet_end` when the tag's window is active, mirroring the global quiet-hours logic.
-
-### Chrome Extension
-
-```
-extension/
-  manifest.json       # MV3 manifest
-  background.js       # Service worker: alarms → fetch due tasks → fire notifications
-  popup.html/js       # Quick-capture UI (create tasks + task list)
-  options.html/js     # Login/register form + backend URL config
-```
-
-`background.js` maintains an in-memory `activeNotifications` map (`notificationId → taskId`) to deduplicate notifications. **This map is lost when the service worker is terminated** — MV3 service workers are short-lived. The alarm is re-created on startup via `chrome.alarms.get` + create if missing.
-
-`chrome.storage.local` holds `{ token, apiBase, quietEnabled, quietStart, quietEnd }`. Both `token` and `apiBase` must be present for any API calls to fire.
-
-Notification button indices: 0 = Complete, 1 = Check-in, 2 = Snooze 1hr.
-
-### Web dashboard (`server/web/`)
-
-Single-page app served as static files by the backend. No framework — vanilla JS in `app.js` (~1100 lines). Key globals: `allTasks`, `allTags`, `filterTag`, `openQuietTagId`. Rendering is manual DOM via `innerHTML`; `renderTasks()` and `renderTagSidebar()` are the main entry points. Auto-refreshes every 30 s by diffing task signatures.
-
-The dashboard uses `EasyMDE` for markdown editing and a custom `DatePicker` (`datepicker.js`) for due dates.
-
-### Telegram integration (`telegram.js`, `llm.js`)
-
-- Bot receives updates via webhook at `POST /telegram/webhook` (verified with `TELEGRAM_SECRET`).
-- `telegram.js` handles connection codes, rate limiting, and message dispatch.
-- `llm.js` calls Gemini 2.5 Flash to generate natural-language briefings and replies.
-- Required env vars: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_SECRET`, `GEMINI_API_KEY`.
-
-### SRS Reminder Formula
-```
-nextReminder = now + (baseInterval_P × min(1 + checkinCount × 0.5, 5))
-```
-Base intervals: P0=30min, P1=120min, P2=1440min, P3=4320min, P4=10080min. Cap at 5× baseline.
-
-**Forcing a task past-due for testing** (negative snooze):
-```bash
-curl -X PATCH http://localhost:3000/tasks/<id> \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"action":"snooze","minutes":-60}'
-```
+Being rebuilt for the PARA model (plan phases 2 and 3). The current files still target the old task API and do not work against the new server.
 
 ---
 
 ## Deployment
 
-Backend deploys to Railway. Required env vars:
-- `PORT` — set by Railway automatically, **do NOT set manually**
-- `DATA_FILE` — path to persistent volume mount (e.g. `/data/synapse.db`)
-- `JWT_SECRET` — random secret for signing tokens
-- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_SECRET`, `GEMINI_API_KEY` — for Telegram/LLM features
-
-Production URL: `https://synapse-production-3ae7.up.railway.app`
+Target: Cloud Run + Firestore in `europe-west1`, secrets in Secret Manager. Set up in plan phase 6; until then Railway still serves the old app from `main`.
 
 ---
 
