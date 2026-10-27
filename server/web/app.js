@@ -9,6 +9,9 @@ let children = new Map();   // parentId -> [item]
 let activity = new Map();   // itemId -> latest lastTouched in its subtree
 let search = { q: '', tag: '', para: '', priority: '' };
 let editing = null;         // { mode: 'create'|'edit', type, item? }
+const ai = { status: 'off', model: null, index: null };
+const aiEnabled = () => localStorage.getItem('synapse_ai') !== 'off';
+const dismissedHints = new Set(readJson('synapse_dismissed_hints', []));
 
 const expanded = new Set(readJson('synapse_expanded', ['root-projects', 'root-areas']));
 const ROOT_IDS = ['root-projects', 'root-areas', 'root-resources', 'root-archive'];
@@ -84,6 +87,7 @@ async function loadItems() {
   allItems = await api('GET', '/items');
   indexItems();
   render();
+  if (ai.model) backfill();
 }
 
 function indexItems() {
@@ -106,6 +110,7 @@ function indexItems() {
       prio(a) - prio(b) ||
       a.title.localeCompare(b.title));
   }
+  ai.index = ai.model ? SynapseAI.buildIndex(allItems) : null;
 }
 
 function descendantsOf(id) {
@@ -114,6 +119,100 @@ function descendantsOf(id) {
 
 function pathTitles(item) {
   return item.path.map(id => byId.get(id)?.title).filter(Boolean);
+}
+
+function folderLabel(id) {
+  const f = byId.get(id);
+  return f ? [...pathTitles(f), f.title].join(' / ') : '';
+}
+
+// ── On-device AI ──────────────────────────────────────────────────────────────
+// See synapse-ai.js. Vectors are computed here and stored on the server so
+// every device can use them; the model itself never leaves the browser.
+
+function setAiStatus(status, detail) {
+  ai.status = status;
+  $('ai-status').textContent = detail || { off: '(off)', loading: '(loading…)', ready: '(ready)', error: '(unavailable)' }[status];
+}
+
+async function startAI() {
+  if (!aiEnabled()) return setAiStatus('off');
+  if (ai.model || ai.status === 'loading') return;
+  if (navigator.connection?.saveData) return setAiStatus('off', '(paused: data saver is on)');
+  setAiStatus('loading');
+  try {
+    const model = await SynapseAI.load();
+    if (!aiEnabled()) return setAiStatus('off');
+    ai.model = model;
+    setAiStatus('ready');
+    indexItems();
+    renderMain();
+    await backfill();
+  } catch (e) {
+    console.warn('On-device AI unavailable:', e);
+    setAiStatus('error', `(unavailable: ${e.message})`);
+  }
+}
+
+function stopAI() {
+  ai.model = null;
+  ai.index = null;
+  setAiStatus('off');
+  renderMain();
+}
+
+let backfilling = false;
+
+/** Compute and upload vectors for items that have none for the current model. */
+async function backfill() {
+  if (!ai.model || backfilling) return;
+  backfilling = true;
+  try {
+    const need = SynapseAI.missing(allItems);
+    for (let i = 0; i < need.length; i += 200) {
+      const vectors = {};
+      for (const item of need.slice(i, i + 200)) {
+        const v = SynapseAI.embed(ai.model, SynapseAI.textFor(item));
+        if (!v) continue;
+        vectors[item.id] = SynapseAI.encode(v);
+        item.embedding = { model: SynapseAI.MODEL_ID, v: vectors[item.id] };
+      }
+      if (Object.keys(vectors).length) await api('POST', '/items/embeddings', { model: SynapseAI.MODEL_ID, vectors });
+    }
+    if (need.length) { indexItems(); renderMain(); }
+  } catch (e) {
+    console.warn('Embedding backfill failed:', e);
+  } finally {
+    backfilling = false;
+  }
+}
+
+const hintKey = h => h.type === 'move' ? `move:${h.itemId}:${h.toFolderId}` : `dup:${[h.itemId, h.otherId].sort().join(':')}`;
+
+function hintsHtml() {
+  if (!ai.index) return ai.status === 'loading' ? '<p class="muted small">Looking for tidy-up hints…</p>' : '';
+  const hs = SynapseAI.hints(ai.index).filter(h => !dismissedHints.has(hintKey(h)));
+  if (!hs.length) return '';
+  const linkTo = item => `<a href="#/f/${esc(item.parentId)}">${esc(item.title)}</a>`;
+  return `
+    <section class="section">
+      <h2 class="section-heading">Tidy-up hints</h2>
+      ${hs.map(h => {
+        const item = byId.get(h.itemId);
+        const dismiss = `<button class="btn-small" data-dismiss="${esc(hintKey(h))}">Dismiss</button>`;
+        if (h.type === 'move') {
+          return `<div class="hint-row">
+            <div class="row-body">“${linkTo(item)}” in ${esc(folderLabel(item.parentId))} looks like it belongs in <b>${esc(folderLabel(h.toFolderId))}</b></div>
+            <button class="btn-small" data-move="${esc(item.id)}" data-to="${esc(h.toFolderId)}">Move</button>${dismiss}
+          </div>`;
+        }
+        const other = byId.get(h.otherId);
+        return `<div class="hint-row">
+          <div class="row-body">“${linkTo(item)}” (${esc(folderLabel(item.parentId))}) and “${linkTo(other)}” (${esc(folderLabel(other.parentId))}) look like the same thing</div>
+          ${dismiss}
+        </div>`;
+      }).join('')}
+    </section>`;
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -128,6 +227,7 @@ async function showApp() {
   $('view-app').classList.remove('hidden');
   await loadItems();
   handleShare();
+  startAI();
 }
 
 function logout() {
@@ -317,21 +417,35 @@ function folderView(folder) {
     ${kids.length ? kids.map(i => rowHtml(i)).join('') : `<p class="muted empty">Empty folder. Add a link or a sub-folder.</p>`}`;
 }
 
+function passesFilters(i) {
+  if (i.parentId === null) return false;
+  if (search.tag && !i.tags.includes(search.tag)) return false;
+  if (search.para && i.para !== search.para) return false;
+  if (search.priority && i.priority !== search.priority) return false;
+  return true;
+}
+
 function searchMatches() {
   const terms = search.q.toLowerCase().split(/\s+/).filter(Boolean);
   return allItems.filter(i => {
-    if (i.parentId === null) return false;
-    if (search.tag && !i.tags.includes(search.tag)) return false;
-    if (search.para && i.para !== search.para) return false;
-    if (search.priority && i.priority !== search.priority) return false;
+    if (!passesFilters(i)) return false;
     if (!terms.length) return true;
     const hay = [i.title, i.note, i.url || '', ...i.tags].join(' ').toLowerCase();
     return terms.every(t => hay.includes(t));
   }).sort((a, b) => b.lastTouched.localeCompare(a.lastTouched));
 }
 
+/** Items close in meaning to the query that keyword search didn't find. */
+function relatedResults(exclude) {
+  if (!ai.index || search.q.length < 3) return [];
+  return SynapseAI.search(ai.index, SynapseAI.embed(ai.model, search.q))
+    .map(r => byId.get(r.id))
+    .filter(i => i && !exclude.has(i.id) && passesFilters(i));
+}
+
 function searchView() {
   const results = searchMatches();
+  const related = relatedResults(new Set(results.map(i => i.id)));
   const opt = (value, label, current) => `<option value="${value}" ${value === current ? 'selected' : ''}>${label}</option>`;
   return `
     <div class="filter-bar">
@@ -345,7 +459,8 @@ function searchView() {
       <button class="btn-text" data-clear-search>Clear</button>
     </div>
     <p class="muted small">${results.length} result${results.length === 1 ? '' : 's'}</p>
-    ${results.map(i => rowHtml(i, { showPath: true })).join('')}`;
+    ${results.map(i => rowHtml(i, { showPath: true })).join('')}
+    ${related.length ? `<h2 class="section-heading related-heading">Related by meaning</h2>${related.map(i => rowHtml(i, { showPath: true })).join('')}` : ''}`;
 }
 
 function reviewView() {
@@ -378,7 +493,7 @@ function reviewView() {
       <h1 class="folder-title">Weekly review</h1>
       <p class="folder-note">Stalest first. Mark what's still going, archive what's done.</p>
     </div>
-    <div id="hints"></div>
+    ${hintsHtml()}
     ${body || '<p class="muted empty">No project or area folders yet.</p>'}`;
 }
 
@@ -411,8 +526,36 @@ function openEditor({ mode, type, item, parentId, url = '', title = '' }) {
   $('editor-tags').value = item ? item.tags.join(', ') : '';
   $('editor-delete').classList.toggle('hidden', mode === 'create');
   $('editor-error').textContent = '';
+  renderEditorHints();
   $('editor').showModal();
   (isLink && !$('editor-url').value ? $('editor-url') : mode === 'create' && isLink ? $('editor-note') : $('editor-title')).focus();
+}
+
+const editorTags = () => $('editor-tags').value.split(',').map(t => t.trim().toLowerCase().replace(/^#/, '')).filter(Boolean);
+
+/** AI chips under the folder picker (new items only) and the tags field. */
+function renderEditorHints() {
+  const fh = $('editor-folder-hints'), th = $('editor-tag-hints');
+  fh.innerHTML = th.innerHTML = '';
+  if (!ai.index || !editing) return;
+  const url = editing.type === 'link' ? $('editor-url').value.trim() : '';
+  const v = SynapseAI.embed(ai.model, SynapseAI.textFor({
+    type: editing.type, url, kind: /google\.com/i.test(url) ? 'gdoc' : 'other',
+    title: $('editor-title').value, note: $('editor-note').value, tags: editorTags(),
+  }));
+  if (!v) return;
+  if (editing.mode === 'create') {
+    const folders = SynapseAI.suggestFolders(ai.index, v).filter(f => f.folderId !== $('editor-parent').value);
+    if (folders.length) {
+      fh.innerHTML = '<span class="label">Maybe:</span>' + folders.map(f =>
+        `<button type="button" class="chip" data-pick-folder="${esc(f.folderId)}">${esc(folderLabel(f.folderId))}</button>`).join('');
+    }
+  }
+  const tags = SynapseAI.suggestTags(ai.index, v, { exclude: editorTags() });
+  if (tags.length) {
+    th.innerHTML = '<span class="label">Suggested:</span>' + tags.map(t =>
+      `<button type="button" class="chip" data-add-tag="${esc(t.tag)}">#${esc(t.tag)}</button>`).join('');
+  }
 }
 
 async function saveEditor() {
@@ -422,7 +565,7 @@ async function saveEditor() {
     parentId: $('editor-parent').value,
     priority: $('editor-priority').value || null,
     dueDate: $('editor-due').value || null,
-    tags: $('editor-tags').value.split(',').map(t => t.trim()).filter(Boolean),
+    tags: editorTags(),
   };
   if (editing.type === 'link') body.url = $('editor-url').value.trim();
   $('editor-error').textContent = '';
@@ -545,6 +688,24 @@ document.addEventListener('click', async e => {
     toast('Moved to Archive');
     return loadItems();
   }
+  if (d.move) {
+    await api('PATCH', `/items/${d.move}`, { parentId: d.to });
+    toast(`Moved to ${folderLabel(d.to)}`);
+    return loadItems();
+  }
+  if (d.dismiss) {
+    dismissedHints.add(d.dismiss);
+    localStorage.setItem('synapse_dismissed_hints', JSON.stringify([...dismissedHints]));
+    return renderMain();
+  }
+  if (d.pickFolder) {
+    $('editor-parent').value = d.pickFolder;
+    return renderEditorHints();
+  }
+  if (d.addTag) {
+    $('editor-tags').value = [...editorTags(), d.addTag].join(', ');
+    return renderEditorHints();
+  }
   if (t.classList.contains('tree-link')) closeDrawer();
 });
 
@@ -596,6 +757,17 @@ function init() {
   $('drawer-backdrop').addEventListener('click', closeDrawer);
 
   $('editor-form').addEventListener('submit', e => { e.preventDefault(); saveEditor(); });
+  let hintTimer;
+  for (const id of ['editor-url', 'editor-title', 'editor-note', 'editor-tags']) {
+    $(id).addEventListener('input', () => { clearTimeout(hintTimer); hintTimer = setTimeout(renderEditorHints, 250); });
+  }
+  $('editor-parent').addEventListener('change', renderEditorHints);
+
+  $('ai-enabled').checked = aiEnabled();
+  $('ai-enabled').addEventListener('change', e => {
+    localStorage.setItem('synapse_ai', e.target.checked ? 'on' : 'off');
+    if (e.target.checked) startAI(); else stopAI();
+  });
   $('editor-cancel').addEventListener('click', () => $('editor').close());
   $('editor-delete').addEventListener('click', deleteFromEditor);
 

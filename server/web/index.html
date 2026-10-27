@@ -64,6 +64,11 @@
         <nav id="tree" class="tree" aria-label="Folders"></nav>
         <h3 class="sidebar-heading">Tags</h3>
         <div id="tag-list" class="tag-list"></div>
+        <h3 class="sidebar-heading">Smart suggestions</h3>
+        <label class="ai-toggle">
+          <input type="checkbox" id="ai-enabled">
+          <span>On-device AI <span id="ai-status" class="muted small"></span></span>
+        </label>
       </aside>
       <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
 
@@ -88,6 +93,7 @@
       <label class="field-label">Folder
         <select id="editor-parent"></select>
       </label>
+      <div id="editor-folder-hints" class="hint-chips"></div>
       <div class="field-row">
         <label class="field-label">Priority
           <select id="editor-priority">
@@ -107,6 +113,7 @@
         <input type="text" id="editor-tags" list="tag-options" autocomplete="off">
       </label>
       <datalist id="tag-options"></datalist>
+      <div id="editor-tag-hints" class="hint-chips"></div>
 
       <div id="editor-error" class="error-msg"></div>
       <div class="editor-actions">
@@ -120,6 +127,7 @@
 
   <div id="toast" class="toast hidden" role="status"></div>
 
+  <script src="/web/synapse-ai.js"></script>
   <script src="/web/app.js"></script>
 </body>
 </html>
