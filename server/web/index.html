@@ -3,14 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1a73e8">
   <title>Synapse</title>
+  <link rel="manifest" href="/web/manifest.webmanifest">
+  <link rel="icon" href="/web/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/web/styles.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css">
 </head>
 <body>
 
   <!-- ── Login View ── -->
-  <div id="view-login">
+  <div id="view-login" class="hidden">
     <div class="login-box">
       <h1 class="login-brand">Synapse</h1>
 
@@ -27,7 +29,7 @@
           <input type="password" id="login-password" autocomplete="current-password" required>
         </label>
         <div id="login-error" class="error-msg"></div>
-        <button type="submit" class="btn-primary btn-submit-full">Sign in</button>
+        <button type="submit" class="btn-primary btn-full">Sign in</button>
       </form>
 
       <form id="form-register" class="hidden">
@@ -35,10 +37,10 @@
           <input type="email" id="reg-email" autocomplete="email" required>
         </label>
         <label class="field-label">Password
-          <input type="password" id="reg-password" autocomplete="new-password" required>
+          <input type="password" id="reg-password" autocomplete="new-password" minlength="8" required>
         </label>
         <div id="reg-error" class="error-msg"></div>
-        <button type="submit" class="btn-primary btn-submit-full">Create account</button>
+        <button type="submit" class="btn-primary btn-full">Create account</button>
       </form>
     </div>
   </div>
@@ -47,210 +49,77 @@
   <div id="view-app" class="hidden">
 
     <header class="app-header">
-      <span class="brand-name">Synapse</span>
+      <button id="btn-drawer" class="btn-header btn-drawer" aria-label="Folders">☰</button>
+      <a href="#/" class="brand-name">Synapse</a>
+      <input type="search" id="search" class="search-input" placeholder="Search titles, notes, tags, links…" autocomplete="off">
       <div class="header-right">
-        <span id="user-email" class="user-email"></span>
-        <button id="btn-theme" class="btn-text btn-theme-toggle" title="Toggle dark mode">🌙</button>
-        <button id="btn-logout" class="btn-text">Sign out</button>
+        <a href="#/review" class="btn-header">Review</a>
+        <button id="btn-theme" class="btn-header" title="Toggle dark mode">🌙</button>
+        <button id="btn-logout" class="btn-header">Sign out</button>
       </div>
     </header>
 
-    <div class="app-body">
+    <div class="app-layout">
+      <aside id="sidebar" class="sidebar">
+        <nav id="tree" class="tree" aria-label="Folders"></nav>
+        <h3 class="sidebar-heading">Tags</h3>
+        <div id="tag-list" class="tag-list"></div>
+      </aside>
+      <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
 
-      <!-- Stats Bar (full width) -->
-      <div class="stats-bar">
-        <div class="stat-item">
-          <span id="stat-active" class="stat-num">0</span>
-          <span class="stat-label">Active</span>
-        </div>
-        <div class="stat-item">
-          <span id="stat-due" class="stat-num stat-urgent">0</span>
-          <span class="stat-label">Due in 1h</span>
-        </div>
-        <div class="stat-item">
-          <span id="stat-completed" class="stat-num">0</span>
-          <span class="stat-label">Completed this week</span>
-        </div>
-        <div class="stat-item">
-          <span id="stat-health" class="stat-num">–</span>
-          <span class="stat-label">Today</span>
-        </div>
-      </div>
-
-      <!-- Health Bar -->
-      <div class="health-bar-section">
-        <div class="health-bar-track">
-          <div id="health-bar-fill" class="health-bar-fill"></div>
-        </div>
-        <span id="health-bar-label" class="health-bar-label"></span>
-      </div>
-
-      <!-- Health Grid -->
-      <div id="health-grid" class="health-grid-section"></div>
-
-      <!-- Two-column layout: sidebar + main -->
-      <div class="app-layout">
-
-        <!-- Left Sidebar: Tags -->
-        <aside class="sidebar">
-          <div class="sidebar-section">
-            <h3 class="sidebar-heading">Projects</h3>
-            <div id="project-filters">
-              <!-- chips rendered by JS -->
-            </div>
-            <div class="create-tag-form" style="margin-top:8px;">
-              <input type="text" id="new-project-name" placeholder="Project name" maxlength="200">
-              <button id="btn-create-project" class="btn-primary">+</button>
-            </div>
-            <div id="create-project-error" class="error-msg"></div>
-          </div>
-          <div class="sidebar-section">
-            <h3 class="sidebar-heading">Filter by Tag</h3>
-            <div id="tag-filters">
-              <!-- chips rendered by JS -->
-            </div>
-          </div>
-          <div class="sidebar-section">
-            <h3 class="sidebar-heading">New Tag</h3>
-            <div class="create-tag-form">
-              <input type="text" id="new-tag-name" placeholder="Tag name" maxlength="40">
-              <button id="btn-create-tag" class="btn-primary">+</button>
-            </div>
-            <div id="create-tag-error" class="error-msg"></div>
-          </div>
-
-          <div class="sidebar-section">
-            <h3 class="sidebar-heading">Telegram</h3>
-            <div id="telegram-settings">
-              <!-- rendered by JS -->
-            </div>
-          </div>
-
-          <div class="sidebar-section">
-            <h3 class="sidebar-heading">Quiet Hours</h3>
-            <p style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:10px;line-height:1.4;">
-              Pauses check-in reminders during sleep. Tasks due overnight reschedule to wake-up time.
-            </p>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;cursor:pointer;">
-              <input type="checkbox" id="quiet-enabled-web" />
-              Enable quiet hours
-            </label>
-            <div id="quiet-range-web" style="margin-top:10px;">
-              <label for="quiet-start-web" class="sidebar-label">From</label>
-              <select id="quiet-start-web" class="sidebar-select"></select>
-              <label for="quiet-end-web" class="sidebar-label" style="margin-top:8px;">Until</label>
-              <select id="quiet-end-web" class="sidebar-select"></select>
-            </div>
-            <button id="quiet-save-web" class="btn-secondary" style="margin-top:10px;width:100%;">Save</button>
-            <div id="quiet-msg-web" style="font-size:0.8rem;margin-top:6px;min-height:1em;"></div>
-          </div>
-        </aside>
-
-        <!-- Main Content -->
-        <main class="main-content">
-
-          <!-- Controls -->
-          <div class="controls-bar">
-            <div class="filter-group">
-              <label class="select-all-label">
-                <input type="checkbox" id="select-all" title="Select all visible tasks">
-                All
-              </label>
-              <label>Status:
-                <select id="filter-status">
-                  <option value="active">Active</option>
-                  <option value="completed">Completed</option>
-                  <option value="all">All</option>
-                </select>
-              </label>
-              <label>Due:
-                <select id="filter-due">
-                  <option value="all">All</option>
-                  <option value="today">Today</option>
-                  <option value="week">This week</option>
-                  <option value="month">This month</option>
-                </select>
-              </label>
-              <label>Sort:
-                <select id="sort-by">
-                  <option value="next_reminder">Next reminder</option>
-                  <option value="priority">Priority</option>
-                  <option value="created_at">Created</option>
-                </select>
-              </label>
-            </div>
-            <button id="btn-new-task" class="btn-primary">+ New Task</button>
-          </div>
-
-          <!-- Bulk Action Bar (hidden until tasks selected) -->
-          <div id="bulk-bar" class="bulk-bar hidden">
-            <span id="bulk-count">0 selected</span>
-            <button id="btn-bulk-complete" class="btn-action">✓ Complete</button>
-            <button id="btn-bulk-snooze" class="btn-action">⏰ Snooze 1h</button>
-            <button id="btn-bulk-delete" class="btn-action btn-danger-action">✕ Delete</button>
-            <button id="btn-bulk-clear" class="btn-text">Clear</button>
-          </div>
-
-          <!-- New Task Form -->
-          <div id="new-task-form" class="new-task-form hidden">
-            <h3>New Task</h3>
-            <input type="text" id="new-title" placeholder="Submit invoice every Friday at 9am #Finance @Work p1" required>
-            <div id="new-quickadd-preview" class="quickadd-preview"></div>
-            <div class="new-task-picker-row">
-              <select id="new-project-select"><option value="">— No project —</option></select>
-              <select id="new-tag-select"><option value="">+ Add tag…</option></select>
-            </div>
-            <select id="new-priority">
-              <option value="P0">P0 – Critical (every 30 min)</option>
-              <option value="P1">P1 – High (every 2 hr)</option>
-              <option value="P2" selected>P2 – Medium (every 24 hr)</option>
-              <option value="P3">P3 – Low (every 3 days)</option>
-              <option value="P4">P4 – Future (weekly)</option>
-            </select>
-            <button type="button" id="new-due-date-btn" class="dp-trigger">📅 Loading…</button>
-            <textarea id="new-desc" placeholder="Description (Markdown supported)" rows="3"></textarea>
-            <div id="create-error" class="error-msg"></div>
-            <div class="form-actions">
-              <button id="btn-create-task" class="btn-primary">Create</button>
-              <button id="btn-cancel-task" class="btn-text">Cancel</button>
-            </div>
-          </div>
-
-          <!-- Task List -->
-          <div id="task-list">
-            <div class="loading">Loading tasks…</div>
-          </div>
-
-        </main>
-      </div><!-- .app-layout -->
-
-    </div><!-- .app-body -->
-  </div><!-- #view-app -->
-
-  <!-- Task Detail Modal -->
-  <div id="task-modal-overlay" class="modal-overlay hidden" aria-modal="true" role="dialog">
-    <div id="task-modal" class="modal-panel">
-      <div class="modal-header">
-        <div id="modal-title-wrap" class="modal-title-wrap"></div>
-        <button id="modal-close" class="btn-icon modal-close-btn" aria-label="Close">✕</button>
-      </div>
-      <div class="modal-body">
-        <div id="modal-meta-row" class="modal-section"></div>
-        <div id="modal-description-section" class="modal-section"></div>
-        <div id="modal-todos-section" class="modal-section"></div>
-        <div id="modal-checkin-section" class="modal-section"></div>
-        <div id="modal-history-section" class="modal-section"></div>
-        <div id="modal-deps-section" class="modal-section"></div>
-        <div id="modal-actions-row" class="modal-section modal-actions-section"></div>
-      </div>
+      <main id="main" class="main-content"></main>
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
-  <script src="/web/datepicker.js"></script>
-  <script src="/web/vendor/chrono.min.js"></script>
-  <script src="/web/quickadd.js"></script>
+  <!-- ── Item editor ── -->
+  <dialog id="editor" class="editor">
+    <form id="editor-form" method="dialog">
+      <h2 id="editor-heading" class="editor-heading">New link</h2>
+
+      <label class="field-label" id="editor-url-wrap">Link or file path
+        <input type="text" id="editor-url" placeholder="https://… or C:\path\to\file" autocomplete="off">
+      </label>
+      <label class="field-label">Title
+        <input type="text" id="editor-title" maxlength="300" autocomplete="off">
+      </label>
+      <label class="field-label">Why this matters
+        <textarea id="editor-note" rows="3" maxlength="2000" placeholder="What is this for? Who needs it? What's next?"></textarea>
+      </label>
+      <label class="field-label">Folder
+        <select id="editor-parent"></select>
+      </label>
+      <div class="field-row">
+        <label class="field-label">Priority
+          <select id="editor-priority">
+            <option value="">None</option>
+            <option value="P0">P0 – Critical</option>
+            <option value="P1">P1 – High</option>
+            <option value="P2">P2 – Medium</option>
+            <option value="P3">P3 – Low</option>
+            <option value="P4">P4 – Someday</option>
+          </select>
+        </label>
+        <label class="field-label">Deadline
+          <input type="date" id="editor-due">
+        </label>
+      </div>
+      <label class="field-label">Tags <span class="field-hint">comma-separated</span>
+        <input type="text" id="editor-tags" list="tag-options" autocomplete="off">
+      </label>
+      <datalist id="tag-options"></datalist>
+
+      <div id="editor-error" class="error-msg"></div>
+      <div class="editor-actions">
+        <button type="button" id="editor-delete" class="btn-danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" id="editor-cancel" class="btn-text">Cancel</button>
+        <button type="submit" id="editor-save" class="btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+
   <script src="/web/app.js"></script>
 </body>
 </html>

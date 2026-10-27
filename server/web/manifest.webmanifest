@@ -1,0 +1,19 @@
+{
+  "name": "Synapse",
+  "short_name": "Synapse",
+  "description": "Your PARA map of where your work lives",
+  "start_url": "/web/",
+  "scope": "/web/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a73e8",
+  "icons": [
+    { "src": "/web/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/web/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "share_target": {
+    "action": "/web/index.html",
+    "method": "GET",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  }
+}

@@ -61,11 +61,21 @@ An item is a folder or a link: `{ id, type, parentId, path, para, title, note, p
 | `GET/PATCH/DELETE /items/:id` | PATCH with `parentId` moves; DELETE removes the subtree |
 | `POST /items/:id/touch` | Mark as opened (updates `lastTouched`) |
 | `GET /items/lookup?url=` | `{ item, breadcrumb }` if the URL is filed |
+| `GET /items/suggest?url=&title=` | Up to 5 `{ folderId, breadcrumb, score, reasons }`: same site, recent folders, matching words |
 | `GET /tags` | Tags in use with counts |
 
-### Web app (`server/web/`) and Chrome extension (`extension/`)
+### Web app (`server/web/`)
 
-Being rebuilt for the PARA model (plan phases 2 and 3). The current files still target the old task API and do not work against the new server.
+Served at `/web/`. Vanilla JS in `app.js`, no dependencies. Loads all items once (`GET /items`) and does tree building, search and filtering client-side; reloads after every change.
+- Hash routes: `#/` home (due-soon strip, PARA cards, recently touched), `#/f/<id>` folder, `#/review` weekly review. Typing in the search box (or clicking a tag) shows results instead of the route.
+- One `<dialog id="editor">` creates and edits both folders and links.
+- All user content goes through `esc()` before `innerHTML`; only `http(s)` URLs become `href`s, local paths get a copy button.
+- Installable PWA (`manifest.webmanifest`, network-only `sw.js`). The manifest's `share_target` opens `index.html?title=&text=&url=`; `handleShare()` opens the editor and preselects the top `/items/suggest` folder.
+- localStorage: `synapse_token`, `synapse_theme`, `synapse_expanded` (open tree nodes), `synapse_last_folder`.
+
+### Chrome extension (`extension/`)
+
+Being rebuilt for the PARA model (plan phase 3). The current files still target the old task API and do not work against the new server.
 
 ---
 

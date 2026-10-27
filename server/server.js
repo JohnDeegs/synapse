@@ -220,7 +220,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Synapse server listening on port ${PORT} (store: ${process.env.STORE === 'firestore' ? 'firestore' : 'file'})`);
+  console.log(`Synapse server listening on port ${server.address().port} (store: ${process.env.STORE === 'firestore' ? 'firestore' : 'file'})`);
 });
 
 module.exports = server;
