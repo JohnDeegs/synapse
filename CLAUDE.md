@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Synapse** — a personal PARA organiser for links. You keep one virtual folder tree (Projects, Areas, Resources, Archive) whose leaves are links to wherever work actually lives: Google Docs, SharePoint files, other URLs or local file paths. Each link carries a "why this matters" note, plus optional priority, deadline and tags. The app never stores document content and has no reminder engine.
 
-The app was rescoped in Oct 2026 from an SRS reminder app. The plan lives in `C:\Users\johnd\.claude\plans\binary-jingling-church.md`. Legacy tasks are not migrated; `server/scripts/export-legacy-tasks.js` dumps them from an old SQLite file to Markdown for review.
+The app was rescoped in Oct 2026 from an SRS reminder app. The plan lives in `C:\Users\johnd\.claude\plans\binary-jingling-church.md`. Legacy data was discarded along with the Railway deployment.
 
 ---
 
@@ -71,7 +71,7 @@ Being rebuilt for the PARA model (plan phases 2 and 3). The current files still 
 
 ## Deployment
 
-Target: Cloud Run + Firestore in `europe-west1`, secrets in Secret Manager. Set up in plan phase 6; until then Railway still serves the old app from `main`.
+Target: Cloud Run + Firestore in `europe-west1`, secrets in Secret Manager, `max-instances=1`, `STORE=firestore`, `TRUST_PROXY=1`. Not deployed yet; there is currently no production server.
 
 ---
 

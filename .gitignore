@@ -9,9 +9,6 @@ node_modules/
 # Local JSON data store
 synapse-data.json*
 
-# Legacy task exports (personal data)
-legacy-tasks-export*.md
-
 # Environment files
 .env
 server/.env
