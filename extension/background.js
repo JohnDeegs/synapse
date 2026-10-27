@@ -1,7 +1,7 @@
 // background.js — service worker: context menu, "already filed" badge,
 // and address-bar search (keyword "s").
 
-importScripts('api.js');
+importScripts('api.js', 'synapse-ai.js');
 
 // ── Context menu ──────────────────────────────────────────────────────────────
 
@@ -65,13 +65,43 @@ chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
 chrome.runtime.onMessage.addListener(async msg => {
   if (msg?.type !== 'filed') return;
   lookupCache.delete(msg.url);
+  aiIndex = null;
   const tabs = await chrome.tabs.query({ url: msg.url }).catch(() => []);
   for (const t of tabs) updateBadge(t.id, t.url);
 });
 
 chrome.storage.onChanged.addListener(changes => {
-  if (changes.token || changes.apiBase) lookupCache.clear();
+  if (changes.token || changes.apiBase) { lookupCache.clear(); aiIndex = null; }
+  if (changes.aiEnabled) { aiModel = null; aiIndex = null; }
 });
+
+// ── On-device AI for search ───────────────────────────────────────────────────
+// Model and index are loaded on first use and kept while the worker lives.
+
+const INDEX_TTL_MS = 60 * 1000;
+let aiModel = null;   // Promise<model|null>
+let aiIndex = null;   // { at, index }
+
+async function getModel() {
+  if (!(await getConfig()).aiEnabled) return null;
+  if (!aiModel) aiModel = SynapseAI.load().catch(() => { aiModel = null; return null; });
+  return aiModel;
+}
+
+async function getIndex() {
+  if (!aiIndex || Date.now() - aiIndex.at > INDEX_TTL_MS) {
+    aiIndex = { at: Date.now(), index: SynapseAI.buildIndex(await api('GET', '/items')) };
+  }
+  return aiIndex.index;
+}
+
+async function relatedItems(q) {
+  if (q.length < 3) return [];
+  const model = await getModel();
+  if (!model) return [];
+  const index = await getIndex();
+  return SynapseAI.search(index, SynapseAI.embed(model, q), { limit: 6 }).map(r => index.byId.get(r.id));
+}
 
 // ── Address-bar search: "s <query>" ───────────────────────────────────────────
 
@@ -89,18 +119,25 @@ chrome.omnibox.onInputChanged.addListener((text, suggest) => {
   searchTimer = setTimeout(async () => {
     try {
       const { apiBase } = await getConfig();
-      const items = await api('GET', `/items?${new URLSearchParams({ q })}`);
+      const [matches, related] = await Promise.all([
+        api('GET', `/items?${new URLSearchParams({ q })}`),
+        relatedItems(q).catch(() => []),
+      ]);
       lastResults = new Map();
       const out = [];
-      for (const i of items.slice(0, 8)) {
+      const add = (i, isRelated) => {
+        if (!i || i.parentId === null || out.length >= 8) return;
         const content = i.type === 'folder' || !isWebUrl(i.url)
           ? webAppUrl(apiBase, `#/f/${encodeURIComponent(i.type === 'folder' ? i.id : i.parentId)}`)
           : i.url;
-        if (lastResults.has(content)) continue;
+        if (lastResults.has(content)) return;
         lastResults.set(content, i.id);
         const where = i.type === 'folder' ? 'folder' : (i.note ? i.note.slice(0, 60) : i.url);
-        out.push({ content, description: `<match>${xmlEsc(i.title)}</match> <dim>— ${xmlEsc(where)}</dim>` });
-      }
+        const title = isRelated ? xmlEsc(i.title) : `<match>${xmlEsc(i.title)}</match>`;
+        out.push({ content, description: `${title} <dim>— ${isRelated ? 'related · ' : ''}${xmlEsc(where)}</dim>` });
+      };
+      matches.forEach(i => add(i, false));
+      related.forEach(i => add(i, true));
       suggest(out);
     } catch {
       suggest([]);

@@ -2,8 +2,15 @@
 // (loaded with <script> in pages and importScripts() in the worker).
 
 async function getConfig() {
-  const { token, apiBase, email } = await chrome.storage.local.get(['token', 'apiBase', 'email']);
-  return { token, apiBase: apiBase ? apiBase.replace(/\/+$/, '') : '', email };
+  const { token, apiBase, email, aiEnabled } = await chrome.storage.local.get(['token', 'apiBase', 'email', 'aiEnabled']);
+  return { token, apiBase: apiBase ? apiBase.replace(/\/+$/, '') : '', email, aiEnabled: aiEnabled !== false };
+}
+
+/** Embed an item-like object with the on-device model; null if unavailable. */
+function embedItem(model, { title, note = '', tags = [], url = '' }) {
+  if (!model) return null;
+  const kind = /(docs|drive)\.google\.com/i.test(url) ? 'gdoc' : 'other';
+  return SynapseAI.embed(model, SynapseAI.textFor({ type: 'link', title, note, tags, url, kind }));
 }
 
 async function api(method, path, body) {

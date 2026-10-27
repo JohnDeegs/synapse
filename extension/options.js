@@ -92,6 +92,11 @@ function wireAuth(btnId, label, path, prefix, msgId) {
 wireAuth('login-btn', 'Log in', '/auth/login', 'login', 'login-msg');
 wireAuth('register-btn', 'Create account', '/auth/register', 'reg', 'register-msg');
 
+// --- On-device AI toggle (default on) ---
+const aiBox = document.getElementById('ai-enabled');
+chrome.storage.local.get(['aiEnabled'], ({ aiEnabled }) => { aiBox.checked = aiEnabled !== false; });
+aiBox.addEventListener('change', () => chrome.storage.local.set({ aiEnabled: aiBox.checked }));
+
 // --- Logout ---
 document.getElementById('logout-btn').addEventListener('click', () => {
   chrome.storage.local.remove(['token', 'email'], () => {

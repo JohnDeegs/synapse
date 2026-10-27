@@ -57,6 +57,14 @@ textarea { resize: vertical; }
 .folder-opt .why { margin-left: auto; font-size: 10px; color: var(--muted); white-space: nowrap; }
 .folder-group { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); padding: 6px 8px 2px; }
 
+.tag-hints { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.tag-hints:empty { display: none; }
+.tag-chip {
+  font: inherit; font-size: 11px; background: var(--bg); color: var(--muted);
+  border: 1px solid var(--border); border-radius: 10px; padding: 0 8px; cursor: pointer;
+}
+.tag-chip:hover { border-color: var(--accent); color: var(--accent); }
+
 details { margin-top: 10px; }
 summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 details[open] summary { margin-bottom: 6px; }

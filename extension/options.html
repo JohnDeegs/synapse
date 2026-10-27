@@ -117,6 +117,8 @@
     .help ul { padding-left: 18px; color: #aaa; font-size: 0.88rem; line-height: 1.7; }
     .help p { color: #888; font-size: 0.82rem; margin-top: 10px; }
     .help code { color: #c4b8ff; }
+    .ai-row { display: flex; gap: 8px; align-items: flex-start; color: #e0e0e8; font-size: 0.9rem; margin: 0; }
+    .ai-row input { width: auto; margin-top: 3px; accent-color: #6b5bf5; }
   </style>
 </head>
 <body>
@@ -166,6 +168,12 @@
     </div>
 
     <hr style="border:none;border-top:1px solid #2a2a3a;margin:28px 0 20px;">
+    <section class="help">
+      <h2>Smart suggestions</h2>
+      <label class="ai-row"><input type="checkbox" id="ai-enabled" /> Use on-device AI for folder and tag suggestions and related search results</label>
+      <p>Runs entirely in your browser with a small model (15 MB, downloaded once from Hugging Face and checked against a fixed fingerprint). Your data is never sent to an AI service.</p>
+    </section>
+    <hr style="border:none;border-top:1px solid #2a2a3a;margin:20px 0;">
     <section class="help">
       <h2>Using Synapse</h2>
       <ul>

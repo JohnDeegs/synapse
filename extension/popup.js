@@ -9,6 +9,14 @@ let folders = [];      // [{ id, title, crumb, label }] in tree order
 let suggested = [];    // [{ folderId, reasons }]
 let visible = [];      // folder ids currently listed, in display order
 let selectedId = null;
+let userPicked = false; // once the user chooses a folder, suggestions stop moving the selection
+let model = null;      // on-device embedding model (synapse-ai.js), if enabled and loaded
+let index = null;
+
+// Blend of server rules and on-device similarity: a similarity of 0.3 adds
+// nothing, a near-perfect match adds ~2.8, comparable to a strong "same place".
+const AI_WEIGHT = 4;
+const AI_FLOOR = 0.3;
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -93,6 +101,65 @@ function select(id) {
   renderFolders();
 }
 
+// ── On-device AI ──────────────────────────────────────────────────────────────
+
+function mergeSuggestions(server, similar) {
+  const merged = new Map(server.map(s => [s.folderId, { folderId: s.folderId, score: s.score, reasons: [...s.reasons] }]));
+  for (const a of similar) {
+    const m = merged.get(a.folderId) || { folderId: a.folderId, score: 0, reasons: [] };
+    m.score += AI_WEIGHT * Math.max(0, a.sim - AI_FLOOR);
+    m.reasons.push('similar');
+    merged.set(a.folderId, m);
+  }
+  return [...merged.values()].sort((a, b) => b.score - a.score);
+}
+
+function currentVector() {
+  return embedItem(model, {
+    title: $('title').value || target.title,
+    note: $('note').value,
+    tags: $('tags').value.split(',').map(t => t.trim()).filter(Boolean),
+    url: target.url,
+  });
+}
+
+function renderTagHints() {
+  const el = $('tag-hints');
+  el.innerHTML = '';
+  if (!index) return;
+  const current = $('tags').value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+  const tags = SynapseAI.suggestTags(index, currentVector(), { exclude: current });
+  el.innerHTML = tags.map(t => `<button type="button" class="tag-chip" data-tag="${esc(t.tag)}">+ #${esc(t.tag)}</button>`).join('');
+}
+
+/** Embed items that have no vector for the current model, and upload them in the background. */
+function backfill(items) {
+  const vectors = {};
+  for (const item of SynapseAI.missing(items)) {
+    const v = SynapseAI.embed(model, SynapseAI.textFor(item));
+    if (!v) continue;
+    vectors[item.id] = SynapseAI.encode(v);
+    item.embedding = { model: SynapseAI.MODEL_ID, v: vectors[item.id] };
+  }
+  const ids = Object.keys(vectors);
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = Object.fromEntries(ids.slice(i, i + 200).map(id => [id, vectors[id]]));
+    api('POST', '/items/embeddings', { model: SynapseAI.MODEL_ID, vectors: chunk }).catch(() => {});
+  }
+}
+
+/** Once the model is ready, re-rank folders with similarity and offer tags. */
+async function applyAI(modelPromise, items, serverSuggestions) {
+  model = await modelPromise;
+  if (!model) return;
+  backfill(items);
+  index = SynapseAI.buildIndex(items);
+  suggested = mergeSuggestions(serverSuggestions, SynapseAI.suggestFolders(index, currentVector(), { limit: 5 }));
+  if (!userPicked) selectedId = suggested[0]?.folderId || selectedId;
+  renderFolders();
+  renderTagHints();
+}
+
 function moveSelection(delta) {
   if (!visible.length) return;
   const at = visible.indexOf(selectedId);
@@ -110,6 +177,7 @@ async function save() {
   }
   $('btn-save').disabled = true;
   try {
+    const v = currentVector();
     await api('POST', '/items', {
       type: 'link',
       parentId: selectedId,
@@ -119,6 +187,7 @@ async function save() {
       priority: $('priority').value || null,
       dueDate: $('due').value || null,
       tags: $('tags').value.split(',').map(t => t.trim()).filter(Boolean),
+      embedding: v ? { model: SynapseAI.MODEL_ID, v: SynapseAI.encode(v) } : undefined,
     });
     chrome.runtime.sendMessage({ type: 'filed', url: target.url }).catch(() => {});
     $('done-path').textContent = folders.find(f => f.id === selectedId)?.label || '';
@@ -153,11 +222,27 @@ function wireEvents() {
     const opt = e.target.closest('.folder-opt');
     if (!opt) return;
     e.preventDefault();
+    userPicked = true;
     select(opt.dataset.id);
     $('note').focus();
   });
 
+  $('tag-hints').addEventListener('click', e => {
+    const chip = e.target.closest('[data-tag]');
+    if (!chip) return;
+    const tags = $('tags').value.split(',').map(t => t.trim()).filter(Boolean);
+    $('tags').value = [...tags, chip.dataset.tag].join(', ');
+    $('more').open = true;
+    renderTagHints();
+    $('note').focus();
+  });
+  let hintTimer;
+  for (const id of ['title', 'note', 'tags']) {
+    $(id).addEventListener('input', () => { clearTimeout(hintTimer); hintTimer = setTimeout(renderTagHints, 250); });
+  }
+
   $('folder-search').addEventListener('input', () => {
+    userPicked = true;
     renderFolders();
     if (visible.length) select(visible[0]);
   });
@@ -185,9 +270,14 @@ async function init() {
     return;
   }
 
+  // Start loading the model now; it is merged in when ready and never blocks filing.
+  const modelPromise = cfg.aiEnabled ? SynapseAI.load().catch(() => null) : Promise.resolve(null);
+  let items;
+
   try {
     const qs = new URLSearchParams({ url: target.url, title: target.title });
-    const [lookup, items, sugg, tags] = await Promise.all([
+    let lookup, sugg, tags;
+    [lookup, items, sugg, tags] = await Promise.all([
       api('GET', `/items/lookup?${new URLSearchParams({ url: target.url })}`),
       api('GET', '/items'),
       api('GET', `/items/suggest?${qs}`),
@@ -211,6 +301,7 @@ async function init() {
   renderFolders();
   show('view-file');
   (selectedId ? $('note') : $('folder-search')).focus();
+  applyAI(modelPromise, items, suggested);
 }
 
 init();
